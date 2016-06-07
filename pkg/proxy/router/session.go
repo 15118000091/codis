@@ -42,7 +42,7 @@ func (s *Session) String() string {
 		RemoteAddr string `json:"remote"`
 	}{
 		s.Ops, s.CreateUnix, s.LastOpUnix,
-		s.Conn.Sock.RemoteAddr().String(),
+		s.Conn.RemoteAddr(),
 	}
 	b, _ := json.Marshal(o)
 	return string(b)

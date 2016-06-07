@@ -11,13 +11,12 @@ import (
 )
 
 type Conn struct {
-	Sock net.Conn
+	Socket net.Conn
+	Reader *Decoder
+	Writer *Encoder
 
 	ReaderTimeout time.Duration
 	WriterTimeout time.Duration
-
-	Reader *Decoder
-	Writer *Encoder
 }
 
 func DialTimeout(addr string, bufsize int, timeout time.Duration) (*Conn, error) {
@@ -33,18 +32,26 @@ func NewConn(sock net.Conn) *Conn {
 }
 
 func NewConnSize(sock net.Conn, bufsize int) *Conn {
-	conn := &Conn{Sock: sock}
+	conn := &Conn{Socket: sock}
 	conn.Reader = NewDecoderSize(&connReader{Conn: conn}, bufsize)
 	conn.Writer = NewEncoderSize(&connWriter{Conn: conn}, bufsize)
 	return conn
 }
 
+func (c *Conn) LocalAddr() string {
+	return c.Socket.LocalAddr().String()
+}
+
+func (c *Conn) RemoteAddr() string {
+	return c.Socket.RemoteAddr().String()
+}
+
 func (c *Conn) Close() error {
-	return c.Sock.Close()
+	return c.Socket.Close()
 }
 
 func (c *Conn) SetKeepAlive(keepalive bool) error {
-	if t, ok := c.Sock.(*net.TCPConn); ok {
+	if t, ok := c.Socket.(*net.TCPConn); ok {
 		if err := t.SetKeepAlive(keepalive); err != nil {
 			return errors.Trace(err)
 		}
@@ -54,7 +61,7 @@ func (c *Conn) SetKeepAlive(keepalive bool) error {
 }
 
 func (c *Conn) SetKeepAlivePeriod(d time.Duration) error {
-	if t, ok := c.Sock.(*net.TCPConn); ok {
+	if t, ok := c.Socket.(*net.TCPConn); ok {
 		if err := t.SetKeepAlivePeriod(d); err != nil {
 			return errors.Trace(err)
 		}
@@ -70,17 +77,17 @@ type connReader struct {
 
 func (r *connReader) Read(b []byte) (int, error) {
 	if timeout := r.ReaderTimeout; timeout != 0 {
-		if err := r.Sock.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		if err := r.Socket.SetReadDeadline(time.Now().Add(timeout)); err != nil {
 			return 0, errors.Trace(err)
 		}
 		r.hasDeadline = true
 	} else if r.hasDeadline {
-		if err := r.Sock.SetReadDeadline(time.Time{}); err != nil {
+		if err := r.Socket.SetReadDeadline(time.Time{}); err != nil {
 			return 0, errors.Trace(err)
 		}
 		r.hasDeadline = false
 	}
-	n, err := r.Sock.Read(b)
+	n, err := r.Socket.Read(b)
 	if err != nil {
 		err = errors.Trace(err)
 	}
@@ -94,17 +101,17 @@ type connWriter struct {
 
 func (w *connWriter) Write(b []byte) (int, error) {
 	if timeout := w.WriterTimeout; timeout != 0 {
-		if err := w.Sock.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+		if err := w.Socket.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
 			return 0, errors.Trace(err)
 		}
 		w.hasDeadline = true
 	} else if w.hasDeadline {
-		if err := w.Sock.SetWriteDeadline(time.Time{}); err != nil {
+		if err := w.Socket.SetWriteDeadline(time.Time{}); err != nil {
 			return 0, errors.Trace(err)
 		}
 		w.hasDeadline = false
 	}
-	n, err := w.Sock.Write(b)
+	n, err := w.Socket.Write(b)
 	if err != nil {
 		err = errors.Trace(err)
 	}
