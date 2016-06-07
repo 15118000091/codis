@@ -23,7 +23,7 @@ codis-fe: codis-deps
 
 codis-server:
 	@mkdir -p bin
-	make -j4 -C extern/redis-2.8.21/
+	make -j4 -C extern/redis-2.8.21/ --no-print-directory
 	@rm -f bin/codis-server
 	@cp -f extern/redis-2.8.21/src/redis-server bin/codis-server
 	@cp -f extern/redis-2.8.21/src/redis-benchmark bin/
