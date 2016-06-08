@@ -134,16 +134,28 @@ func (d *Decoder) decodeTextBytes() ([]byte, error) {
 	}
 }
 
-func (d *Decoder) decodeTextString() (string, error) {
-	b, err := d.decodeTextBytes()
+func (d *Decoder) decodeTextBytesUnsafe() ([]byte, error) {
+	b, err := d.br.ReadSlice('\n')
 	if err != nil {
-		return "", err
+		if err != bufio.ErrBufferFull {
+			return nil, errors.Trace(err)
+		}
+		prefix := append(make([]byte, 0, len(b)+16), b...)
+		s, err := d.br.ReadBytes('\n')
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		b = append(prefix, s...)
 	}
-	return string(b), nil
+	if n := len(b) - 2; n < 0 || b[n] != '\r' {
+		return nil, errors.Trace(ErrBadRespCRLFEnd)
+	} else {
+		return b[:n], nil
+	}
 }
 
 func (d *Decoder) decodeInt() (int64, error) {
-	b, err := d.decodeTextBytes()
+	b, err := d.decodeTextBytesUnsafe()
 	if err != nil {
 		return 0, err
 	}
