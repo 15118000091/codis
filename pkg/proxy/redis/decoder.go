@@ -16,6 +16,9 @@ var (
 	ErrBadRespCRLFEnd  = errors.New("bad resp CRLF end")
 	ErrBadRespBytesLen = errors.New("bad resp bytes len")
 	ErrBadRespArrayLen = errors.New("bad resp array len")
+
+	ErrBadRespBytesLenTooLong = errors.New("bad resp bytes len, too long")
+	ErrBadRespArrayLenTooLong = errors.New("bad resp array len, too long")
 )
 
 func btoi(b []byte) (int64, error) {
@@ -152,9 +155,12 @@ func (d *Decoder) decodeBulkBytes() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if n < -1 {
+	switch {
+	case n < -1:
 		return nil, errors.Trace(ErrBadRespBytesLen)
-	} else if n == -1 {
+	case n > 1024*1024*512:
+		return nil, errors.Trace(ErrBadRespBytesLenTooLong)
+	case n == -1:
 		return nil, nil
 	}
 	b := make([]byte, n+2)
@@ -172,9 +178,12 @@ func (d *Decoder) decodeArray(depth int) ([]*Resp, error) {
 	if err != nil {
 		return nil, err
 	}
-	if n < -1 {
+	switch {
+	case n < -1:
 		return nil, errors.Trace(ErrBadRespArrayLen)
-	} else if n == -1 {
+	case n > 1024*1024:
+		return nil, errors.Trace(ErrBadRespArrayLenTooLong)
+	case n == -1:
 		return nil, nil
 	}
 	a := make([]*Resp, n)
