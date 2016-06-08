@@ -164,19 +164,16 @@ func (bc *BackendConn) verifyAuth(c *redis.Conn) error {
 		return err
 	}
 
-	resp, err := c.Reader.Decode()
-	if err != nil {
+	switch resp, err := c.Reader.Decode(); {
+	case err != nil:
 		return err
-	}
-	if resp == nil {
+	case resp == nil:
 		return errors.New(fmt.Sprintf("error resp: nil response"))
-	}
-	if resp.IsError() {
+	case resp.IsError():
 		return errors.New(fmt.Sprintf("error resp: %s", resp.Value))
-	}
-	if resp.IsString() {
+	case resp.IsString():
 		return nil
-	} else {
+	default:
 		return errors.New(fmt.Sprintf("error resp: should be string, but got %s", resp.Type))
 	}
 }

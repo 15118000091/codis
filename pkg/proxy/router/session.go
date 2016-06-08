@@ -230,19 +230,17 @@ func (s *Session) handleAuth(r *Request) (*Request, error) {
 		r.Response.Resp = redis.NewError([]byte("ERR wrong number of arguments for 'AUTH' command"))
 		return r, nil
 	}
-	if s.auth == "" {
+	switch {
+	case s.auth == "":
 		r.Response.Resp = redis.NewError([]byte("ERR Client sent AUTH, but no password is set"))
-		return r, nil
-	}
-	if s.auth != string(r.Multi[1].Value) {
+	case s.auth != string(r.Multi[1].Value):
 		s.authorized = false
 		r.Response.Resp = redis.NewError([]byte("ERR invalid password"))
-		return r, nil
-	} else {
+	default:
 		s.authorized = true
 		r.Response.Resp = redis.NewString([]byte("OK"))
-		return r, nil
 	}
+	return r, nil
 }
 
 func (s *Session) handleSelect(r *Request) (*Request, error) {
@@ -250,16 +248,15 @@ func (s *Session) handleSelect(r *Request) (*Request, error) {
 		r.Response.Resp = redis.NewError([]byte("ERR wrong number of arguments for 'SELECT' command"))
 		return r, nil
 	}
-	if db, err := strconv.Atoi(string(r.Multi[1].Value)); err != nil {
+	switch db, err := strconv.Atoi(string(r.Multi[1].Value)); {
+	case err != nil:
 		r.Response.Resp = redis.NewError([]byte("ERR invalid DB index"))
-		return r, nil
-	} else if db != 0 {
+	case db != 0:
 		r.Response.Resp = redis.NewError([]byte("ERR invalid DB index, only accept DB 0"))
-		return r, nil
-	} else {
+	default:
 		r.Response.Resp = redis.NewString([]byte("OK"))
-		return r, nil
 	}
+	return r, nil
 }
 
 func (s *Session) handlePing(r *Request) (*Request, error) {
@@ -292,14 +289,14 @@ func (s *Session) handleRequestMGet(r *Request, d Dispatcher) (*Request, error) 
 			if err := x.Response.Err; err != nil {
 				return err
 			}
-			resp := x.Response.Resp
-			if resp == nil {
+			switch resp := x.Response.Resp; {
+			case resp == nil:
 				return ErrRespIsRequired
-			}
-			if !resp.IsArray() || len(resp.Array) != 1 {
+			case resp.IsArray() && len(resp.Array) == 1:
+				array[i] = resp.Array[0]
+			default:
 				return errors.New(fmt.Sprintf("bad mget resp: %s array.len = %d", resp.Type, len(resp.Array)))
 			}
-			array[i] = resp.Array[0]
 		}
 		r.Response.Resp = redis.NewArray(array)
 		return nil
@@ -312,7 +309,7 @@ func (s *Session) handleRequestMSet(r *Request, d Dispatcher) (*Request, error) 
 	if nblks <= 2 {
 		return r, d.Dispatch(r)
 	}
-	if nblks%2 != 0 {
+	if (nblks % 2) != 0 {
 		r.Response.Resp = redis.NewError([]byte("ERR wrong number of arguments for 'MSET' command"))
 		return r, nil
 	}
@@ -332,14 +329,14 @@ func (s *Session) handleRequestMSet(r *Request, d Dispatcher) (*Request, error) 
 			if err := x.Response.Err; err != nil {
 				return err
 			}
-			resp := x.Response.Resp
-			if resp == nil {
+			switch resp := x.Response.Resp; {
+			case resp == nil:
 				return ErrRespIsRequired
-			}
-			if !resp.IsString() {
+			case resp.IsString():
+				r.Response.Resp = resp
+			default:
 				return errors.New(fmt.Sprintf("bad mset resp: %s value.len = %d", resp.Type, len(resp.Value)))
 			}
-			r.Response.Resp = resp
 		}
 		return nil
 	}
@@ -367,15 +364,15 @@ func (s *Session) handleRequestMDel(r *Request, d Dispatcher) (*Request, error) 
 			if err := x.Response.Err; err != nil {
 				return err
 			}
-			resp := x.Response.Resp
-			if resp == nil {
+			switch resp := x.Response.Resp; {
+			case resp == nil:
 				return ErrRespIsRequired
-			}
-			if !resp.IsInt() || len(resp.Value) != 1 {
+			case resp.IsInt() && len(resp.Value) == 1:
+				if resp.Value[0] != '0' {
+					n++
+				}
+			default:
 				return errors.New(fmt.Sprintf("bad mdel resp: %s value.len = %d", resp.Type, len(resp.Value)))
-			}
-			if resp.Value[0] != '0' {
-				n++
 			}
 		}
 		r.Response.Resp = redis.NewInt([]byte(strconv.Itoa(n)))
