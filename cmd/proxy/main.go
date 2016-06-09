@@ -24,7 +24,7 @@ import (
 func main() {
 	const usage = `
 Usage:
-	codis-proxy [--ncpu=N] [--config=CONF] [--log=FILE] [--log-level=LEVEL] [--host-admin=ADDR] [--host-proxy=ADDR] [--ulimit=NLIMIT]
+	codis-proxy [--ncpu=N [--maxcpu=MAX]] [--config=CONF] [--log=FILE] [--log-level=LEVEL] [--host-admin=ADDR] [--host-proxy=ADDR] [--ulimit=NLIMIT]
 	codis-proxy  --default-config
 	codis-proxy  --version
 
@@ -85,7 +85,31 @@ Options:
 	} else {
 		runtime.GOMAXPROCS(runtime.NumCPU())
 	}
-	log.Warnf("set ncpu = %d", runtime.GOMAXPROCS(0))
+
+	mincpu := runtime.GOMAXPROCS(0)
+	maxcpu, _ := utils.ArgumentInteger(d, "--maxcpu")
+	switch {
+	case mincpu <= maxcpu:
+		log.Warnf("set ncpu = %d, maxcpu = %d", mincpu, maxcpu)
+	default:
+		log.Warnf("set ncpu = %d", mincpu)
+	}
+	if mincpu < maxcpu {
+		go func() {
+			for {
+				update, err := SetMaxCPU(mincpu, maxcpu, time.Second)
+				switch {
+				case err != nil:
+					log.WarnErrorf(err, "set max procs failed")
+					time.Sleep(time.Second * 5)
+				case !update:
+					time.Sleep(time.Second * 3)
+				default:
+					time.Sleep(time.Millisecond * 500)
+				}
+			}
+		}()
+	}
 
 	config := proxy.NewDefaultConfig()
 	if s, ok := utils.Argument(d, "--config"); ok {
@@ -129,4 +153,39 @@ Options:
 	}
 
 	log.Warnf("[%p] proxy exiting ...", s)
+}
+
+func SetMaxCPU(min, max int, interval time.Duration) (bool, error) {
+	var now = time.Now()
+
+	b, err := utils.GetCPUUsage()
+	if err != nil {
+		return false, err
+	}
+
+	time.Sleep(interval)
+
+	e, err := utils.GetCPUUsage()
+	if err != nil {
+		return false, err
+	}
+
+	var usage = e - b
+
+	current := runtime.GOMAXPROCS(0)
+	percent := float64(usage) / float64(time.Since(now)) / float64(current) * 100
+
+	switch {
+	case percent < 55 && current > min:
+		runtime.GOMAXPROCS(current - 1)
+		log.Warnf("ncpu = %d, %3.2f%% usage = %s, -> %d", current, percent, usage, current-1)
+		return true, nil
+	case percent > 85 && current < max:
+		runtime.GOMAXPROCS(current + 1)
+		log.Warnf("ncpu = %d, %3.2f%% usage = %s, -> %d", current, percent, usage, current+1)
+		return true, nil
+	default:
+		log.Infof("ncpu = %d, %3.2f%% usage = %s", current, percent, usage)
+		return false, nil
+	}
 }

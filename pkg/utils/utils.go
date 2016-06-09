@@ -6,6 +6,7 @@ package utils
 import (
 	"net"
 	"regexp"
+	"syscall"
 	"time"
 
 	"github.com/CodisLabs/codis/pkg/utils/errors"
@@ -13,6 +14,14 @@ import (
 
 func Microseconds() int64 {
 	return time.Now().UnixNano() / int64(time.Microsecond)
+}
+
+func GetCPUUsage() (time.Duration, error) {
+	var usage syscall.Rusage
+	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &usage); err != nil {
+		return 0, errors.Trace(err)
+	}
+	return time.Duration(usage.Utime.Nano() + usage.Stime.Nano()), nil
 }
 
 func MaxInt(a, b int) int {
