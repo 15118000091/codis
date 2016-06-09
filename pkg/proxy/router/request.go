@@ -22,6 +22,9 @@ type Request struct {
 	Start int64
 
 	Multi []*redis.Resp
+	Batch *sync.WaitGroup
+
+	batch sync.WaitGroup
 
 	Coalesce func() error
 	Response struct {
@@ -29,23 +32,34 @@ type Request struct {
 		Err  error
 	}
 
-	Wait *sync.WaitGroup
-	slot *sync.WaitGroup
-
-	Failed *atomic2.Bool
+	Broken *atomic2.Bool
+	slot   *sync.WaitGroup
 }
 
-func NewRequest(multi []*redis.Resp) *Request {
+func NewRequest(opstr string, multi []*redis.Resp, broken *atomic2.Bool) *Request {
 	r := &Request{}
+	r.OpStr = opstr
 	r.Multi = multi
+	r.Batch = &r.batch
+	r.Broken = broken
 	return r
 }
 
-func (r *Request) SubRequest(multi []*redis.Resp) *Request {
+func (r *Request) SubRequest(opstr string, multi []*redis.Resp) *Request {
 	x := &Request{}
-	x.OpStr = r.OpStr
+	x.OpStr = opstr
 	x.Multi = multi
-	x.Wait = r.Wait
-	x.Failed = r.Failed
+	x.Batch = r.Batch
+	x.Broken = r.Broken
 	return x
+}
+
+func (r *Request) Break() {
+	if r.Broken != nil {
+		r.Broken.Set(true)
+	}
+}
+
+func (r *Request) IsBroken() bool {
+	return r.Broken != nil && r.Broken.Get()
 }

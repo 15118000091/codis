@@ -11,6 +11,10 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 )
 
+func Microseconds() int64 {
+	return time.Now().UnixNano() / int64(time.Microsecond)
+}
+
 func MaxInt(a, b int) int {
 	if a > b {
 		return a

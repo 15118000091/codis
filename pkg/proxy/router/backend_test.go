@@ -6,7 +6,6 @@ package router
 import (
 	"net"
 	"strconv"
-	"sync"
 	"testing"
 	"time"
 
@@ -27,8 +26,7 @@ func TestBackend(t *testing.T) {
 		defer close(reqc)
 		var multi = []*redis.Resp{redis.NewBulkBytes(make([]byte, 4096))}
 		for i := 0; i < cap(reqc); i++ {
-			r := NewRequest(multi)
-			r.Wait = &sync.WaitGroup{}
+			r := NewRequest("", multi, nil)
 			bc.PushBack(r)
 			reqc <- r
 		}
@@ -50,7 +48,7 @@ func TestBackend(t *testing.T) {
 
 	var n int
 	for r := range reqc {
-		r.Wait.Wait()
+		r.Batch.Wait()
 		assert.Must(string(r.Response.Resp.Value) == strconv.Itoa(n))
 		n++
 	}

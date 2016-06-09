@@ -20,8 +20,8 @@ var (
 	ErrBadRespBytesLenTooLong = errors.New("bad resp bytes len, too long")
 	ErrBadRespArrayLenTooLong = errors.New("bad resp array len, too long")
 
-	ErrBadMultiBulkLen  = errors.New("bad multi-bulk len")
-	ErrBadMultiBulkBody = errors.New("bad multi-bulk body, should be bulkbytes")
+	ErrBadMultiBulkLen     = errors.New("bad multi-bulk len")
+	ErrBadMultiBulkContent = errors.New("bad multi-bulk content, should be bulkbytes")
 )
 
 func btoi(b []byte) (int64, error) {
@@ -267,7 +267,7 @@ func (d *Decoder) decodeMultiBulk() ([]*Resp, error) {
 			return nil, err
 		}
 		if multi[i].Type != TypeBulkBytes {
-			return nil, errors.Trace(ErrBadMultiBulkBody)
+			return nil, errors.Trace(ErrBadMultiBulkContent)
 		}
 	}
 	return multi, nil

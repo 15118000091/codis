@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/CodisLabs/codis/pkg/proxy/redis"
+	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 	"github.com/CodisLabs/codis/pkg/utils/sync2/atomic2"
@@ -29,7 +30,7 @@ type Session struct {
 	authorized bool
 
 	quit   bool
-	failed atomic2.Bool
+	broken atomic2.Bool
 
 	exit sync.Once
 }
@@ -131,18 +132,25 @@ func (s *Session) loopWriter(tasks <-chan *Request) (err error) {
 			incrOpFails()
 		}
 	}()
+
 	p := &FlushPolicy{
-		Encoder:     s.Conn.Writer,
-		MaxBuffered: 32,
-		MaxInterval: 300,
+		Conn: s.Conn,
+
+		MaxBuffered:   128,
+		MaxIntervalMs: 300,
 	}
+
 	for r := range tasks {
 		resp, err := s.handleResponse(r)
 		if err != nil {
 			incrOpFails()
 			return err
 		}
-		if err := p.Encode(resp, len(tasks) == 0); err != nil {
+		if err := p.Encode(resp); err != nil {
+			incrOpFails()
+			return err
+		}
+		if err := p.Flush(len(tasks) == 0); err != nil {
 			incrOpFails()
 			return err
 		}
@@ -153,7 +161,7 @@ func (s *Session) loopWriter(tasks <-chan *Request) (err error) {
 var ErrRespIsRequired = errors.New("resp is required")
 
 func (s *Session) handleResponse(r *Request) (*redis.Resp, error) {
-	r.Wait.Wait()
+	r.Batch.Wait()
 	if r.Coalesce != nil {
 		if err := r.Coalesce(); err != nil {
 			return nil, err
@@ -166,7 +174,7 @@ func (s *Session) handleResponse(r *Request) (*redis.Resp, error) {
 	if resp == nil {
 		return nil, ErrRespIsRequired
 	}
-	incrOpStats(r.OpStr, microseconds()-r.Start)
+	incrOpStats(r.OpStr, utils.Microseconds()-r.Start)
 	return resp, nil
 }
 
@@ -179,15 +187,12 @@ func (s *Session) handleRequest(multi []*redis.Resp, d Dispatcher) (*Request, er
 		return nil, errors.New(fmt.Sprintf("command <%s> is not allowed", opstr))
 	}
 
-	usnow := microseconds()
+	usnow := utils.Microseconds()
 	s.LastOpUnix = usnow / 1e6
 	s.Ops++
 
-	r := NewRequest(multi)
-	r.OpStr = opstr
+	r := NewRequest(opstr, multi, &s.broken)
 	r.Start = usnow
-	r.Wait = &sync.WaitGroup{}
-	r.Failed = &s.failed
 
 	if opstr == "QUIT" {
 		return s.handleQuit(r)
@@ -262,9 +267,9 @@ func (s *Session) handleSelect(r *Request) (*Request, error) {
 func (s *Session) handlePing(r *Request) (*Request, error) {
 	if len(r.Multi) != 1 {
 		r.Response.Resp = redis.NewError([]byte("ERR wrong number of arguments for 'PING' command"))
-		return r, nil
+	} else {
+		r.Response.Resp = redis.NewString([]byte("PONG"))
 	}
-	r.Response.Resp = redis.NewString([]byte("PONG"))
 	return r, nil
 }
 
@@ -275,7 +280,7 @@ func (s *Session) handleRequestMGet(r *Request, d Dispatcher) (*Request, error) 
 	}
 	var sub = make([]*Request, nkeys)
 	for i := 0; i < len(sub); i++ {
-		sub[i] = r.SubRequest([]*redis.Resp{
+		sub[i] = r.SubRequest(r.OpStr, []*redis.Resp{
 			r.Multi[0],
 			r.Multi[i+1],
 		})
@@ -315,7 +320,7 @@ func (s *Session) handleRequestMSet(r *Request, d Dispatcher) (*Request, error) 
 	}
 	var sub = make([]*Request, nblks/2)
 	for i := 0; i < len(sub); i++ {
-		sub[i] = r.SubRequest([]*redis.Resp{
+		sub[i] = r.SubRequest(r.OpStr, []*redis.Resp{
 			r.Multi[0],
 			r.Multi[i*2+1],
 			r.Multi[i*2+2],
@@ -350,7 +355,7 @@ func (s *Session) handleRequestMDel(r *Request, d Dispatcher) (*Request, error) 
 	}
 	var sub = make([]*Request, nkeys)
 	for i := 0; i < len(sub); i++ {
-		sub[i] = r.SubRequest([]*redis.Resp{
+		sub[i] = r.SubRequest(r.OpStr, []*redis.Resp{
 			r.Multi[0],
 			r.Multi[i+1],
 		})
@@ -379,8 +384,4 @@ func (s *Session) handleRequestMDel(r *Request, d Dispatcher) (*Request, error) 
 		return nil
 	}
 	return r, nil
-}
-
-func microseconds() int64 {
-	return time.Now().UnixNano() / int64(time.Microsecond)
 }

@@ -93,19 +93,17 @@ func (s *Slot) slotsmgrt(r *Request, key []byte) error {
 		return nil
 	}
 
-	m := NewRequest([]*redis.Resp{
+	m := NewRequest("SLOTSMGRTTAGONE", []*redis.Resp{
 		redis.NewBulkBytes([]byte("SLOTSMGRTTAGONE")),
 		redis.NewBulkBytes(s.backend.host),
 		redis.NewBulkBytes(s.backend.port),
 		redis.NewBulkBytes([]byte("3000")),
 		redis.NewBulkBytes(key),
-	})
-
-	m.Wait = &sync.WaitGroup{}
+	}, nil)
 
 	s.migrate.bc.PushBack(m)
 
-	m.Wait.Wait()
+	m.Batch.Wait()
 
 	resp, err := m.Response.Resp, m.Response.Err
 	switch {

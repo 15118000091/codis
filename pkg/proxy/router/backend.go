@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/CodisLabs/codis/pkg/proxy/redis"
+	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
@@ -53,9 +54,7 @@ func (bc *BackendConn) Close() {
 }
 
 func (bc *BackendConn) PushBack(r *Request) {
-	if r.Wait != nil {
-		r.Wait.Add(1)
-	}
+	r.Batch.Add(1)
 	bc.input <- r
 }
 
@@ -64,11 +63,9 @@ func (bc *BackendConn) KeepAlive() bool {
 		return false
 	}
 
-	m := NewRequest([]*redis.Resp{
+	bc.PushBack(NewRequest("PING", []*redis.Resp{
 		redis.NewBulkBytes([]byte("PING")),
-	})
-
-	bc.PushBack(m)
+	}, nil))
 
 	return true
 }
@@ -108,19 +105,23 @@ func (bc *BackendConn) loopWriter(round int) (err error) {
 		defer close(tasks)
 
 		p := &FlushPolicy{
-			Encoder:     c.Writer,
-			MaxBuffered: 64,
-			MaxInterval: 300,
+			Conn: c,
+
+			MaxBuffered:   256,
+			MaxIntervalMs: 300,
 		}
+
 		for ok {
-			var flush = len(bc.input) == 0
-			if bc.canForward(r) {
-				if err := p.EncodeMultiBulk(r.Multi, flush); err != nil {
+			if !r.IsBroken() {
+				if err := p.EncodeMultiBulk(r.Multi); err != nil {
+					return bc.setResponse(r, nil, err)
+				}
+				if err := p.Flush(len(bc.input) == 0); err != nil {
 					return bc.setResponse(r, nil, err)
 				}
 				tasks <- r
 			} else {
-				if err := p.Flush(flush); err != nil {
+				if err := p.Flush(len(bc.input) == 0); err != nil {
 					return bc.setResponse(r, nil, err)
 				}
 				bc.setResponse(r, nil, ErrDiscardedRequest)
@@ -178,25 +179,15 @@ func (bc *BackendConn) verifyAuth(c *redis.Conn) error {
 	}
 }
 
-func (bc *BackendConn) canForward(r *Request) bool {
-	if r.Failed != nil && r.Failed.Get() {
-		return false
-	} else {
-		return true
-	}
-}
-
 func (bc *BackendConn) setResponse(r *Request, resp *redis.Resp, err error) error {
 	r.Response.Resp, r.Response.Err = resp, err
-	if err != nil && r.Failed != nil {
-		r.Failed.Set(true)
-	}
-	if r.Wait != nil {
-		r.Wait.Done()
+	if err != nil {
+		r.Break()
 	}
 	if r.slot != nil {
 		r.slot.Done()
 	}
+	r.Batch.Done()
 	return err
 }
 
@@ -224,31 +215,31 @@ func (s *SharedBackendConn) Close() bool {
 	return s.refcnt == 0
 }
 
-func (s *SharedBackendConn) IncrRefcnt() {
+func (s *SharedBackendConn) IncrRefcnt() *SharedBackendConn {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.refcnt == 0 {
 		log.Panicf("shared backend conn has been closed")
 	}
 	s.refcnt++
+	return s
 }
 
 type FlushPolicy struct {
-	*redis.Encoder
+	Conn *redis.Conn
 
-	MaxBuffered int
-	MaxInterval int64
+	MaxBuffered   int
+	MaxIntervalMs int64
 
 	nbuffered int
-	lastflush int64
 }
 
-func (p *FlushPolicy) needFlush() bool {
+func (p *FlushPolicy) NeedFlush() bool {
 	if p.nbuffered != 0 {
 		if p.nbuffered > p.MaxBuffered {
 			return true
 		}
-		if microseconds()-p.lastflush > p.MaxInterval {
+		if d := utils.Microseconds() - p.Conn.LastWriteMs; d > p.MaxIntervalMs {
 			return true
 		}
 	}
@@ -256,21 +247,27 @@ func (p *FlushPolicy) needFlush() bool {
 }
 
 func (p *FlushPolicy) Flush(force bool) error {
-	if force || p.needFlush() {
-		if err := p.Encoder.Flush(); err != nil {
+	if force || p.NeedFlush() {
+		if err := p.Conn.Writer.Flush(); err != nil {
 			return err
 		}
 		p.nbuffered = 0
-		p.lastflush = microseconds()
 	}
 	return nil
 }
 
-func (p *FlushPolicy) Encode(resp *redis.Resp, force bool) error {
-	if err := p.Encoder.Encode(resp, false); err != nil {
+func (p *FlushPolicy) Encode(resp *redis.Resp) error {
+	if err := p.Conn.Writer.Encode(resp, false); err != nil {
 		return err
-	} else {
-		p.nbuffered++
-		return p.Flush(force)
 	}
+	p.nbuffered++
+	return nil
+}
+
+func (p *FlushPolicy) EncodeMultiBulk(array []*redis.Resp) error {
+	if err := p.Conn.Writer.EncodeMultiBulk(array, false); err != nil {
+		return err
+	}
+	p.nbuffered++
+	return nil
 }

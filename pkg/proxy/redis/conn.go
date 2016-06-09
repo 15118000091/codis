@@ -7,6 +7,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 )
 
@@ -17,6 +18,8 @@ type Conn struct {
 
 	ReaderTimeout time.Duration
 	WriterTimeout time.Duration
+
+	LastWriteMs int64
 }
 
 func DialTimeout(addr string, bufsize int, timeout time.Duration) (*Conn, error) {
@@ -115,6 +118,7 @@ func (w *connWriter) Write(b []byte) (int, error) {
 	if err != nil {
 		err = errors.Trace(err)
 	}
+	w.LastWriteMs = utils.Microseconds()
 	return n, err
 }
 

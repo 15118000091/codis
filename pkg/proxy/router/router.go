@@ -104,14 +104,13 @@ func (s *Router) Dispatch(r *Request) error {
 }
 
 func (s *Router) getBackendConn(addr string) *SharedBackendConn {
-	bc := s.pool[addr]
-	if bc != nil {
-		bc.IncrRefcnt()
+	if bc := s.pool[addr]; bc != nil {
+		return bc.IncrRefcnt()
 	} else {
-		bc = NewSharedBackendConn(addr, s.auth)
+		bc := NewSharedBackendConn(addr, s.auth)
 		s.pool[addr] = bc
+		return bc
 	}
-	return bc
 }
 
 func (s *Router) putBackendConn(bc *SharedBackendConn) {
