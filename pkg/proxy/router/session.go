@@ -32,6 +32,10 @@ type Session struct {
 	quit   bool
 	broken atomic2.Bool
 
+	stats struct {
+		opmap map[string]*opStats
+		total atomic2.Int64
+	}
 	exit sync.Once
 }
 
@@ -58,6 +62,7 @@ func NewSessionSize(c net.Conn, auth string, bufsize int, seconds int) *Session 
 	s.Conn = redis.NewConnSize(c, bufsize)
 	s.Conn.ReaderTimeout = time.Second * time.Duration(seconds)
 	s.Conn.WriterTimeout = time.Second * 30
+	s.stats.opmap = make(map[string]*opStats, 16)
 	log.Infof("session [%p] create: %s", s, s)
 	return s
 }
@@ -112,12 +117,11 @@ func (s *Session) loopReader(tasks chan<- *Request, d Dispatcher) (err error) {
 		if err != nil {
 			return err
 		}
-		incrOpTotal()
+		s.incrOpTotal()
 
 		r, err := s.handleRequest(multi, d)
 		if err != nil {
-			incrOpFails()
-			return err
+			return s.incrOpFails(err)
 		} else {
 			tasks <- r
 		}
@@ -129,8 +133,9 @@ func (s *Session) loopWriter(tasks <-chan *Request) (err error) {
 	defer func() {
 		s.CloseWithError(err)
 		for _ = range tasks {
-			incrOpFails()
+			s.incrOpFails(nil)
 		}
+		s.flushOpStats()
 	}()
 
 	p := &FlushPolicy{
@@ -143,16 +148,16 @@ func (s *Session) loopWriter(tasks <-chan *Request) (err error) {
 	for r := range tasks {
 		resp, err := s.handleResponse(r)
 		if err != nil {
-			incrOpFails()
-			return err
+			return s.incrOpFails(err)
 		}
 		if err := p.Encode(resp); err != nil {
-			incrOpFails()
-			return err
+			return s.incrOpFails(err)
 		}
 		if err := p.Flush(len(tasks) == 0); err != nil {
-			incrOpFails()
-			return err
+			return s.incrOpFails(err)
+		}
+		if len(tasks) == 0 {
+			s.flushOpStats()
 		}
 	}
 	return nil
@@ -173,8 +178,9 @@ func (s *Session) handleResponse(r *Request) (*redis.Resp, error) {
 	}
 	if resp == nil {
 		return nil, ErrRespIsRequired
+	} else {
+		s.incrOpStats(r)
 	}
-	incrOpStats(r.OpStr, utils.Microseconds()-r.Start)
 	return resp, nil
 }
 
@@ -384,4 +390,33 @@ func (s *Session) handleRequestMDel(r *Request, d Dispatcher) (*Request, error) 
 		return nil
 	}
 	return r, nil
+}
+
+func (s *Session) incrOpTotal() {
+	s.stats.total.Incr()
+}
+
+func (s *Session) incrOpFails(err error) error {
+	incrOpFails()
+	return err
+}
+
+func (s *Session) incrOpStats(r *Request) {
+	e := s.stats.opmap[r.OpStr]
+	if e == nil {
+		e = &opStats{opstr: r.OpStr}
+		s.stats.opmap[r.OpStr] = e
+	}
+	e.calls.Incr()
+	e.usecs.Add(utils.Microseconds() - r.Start)
+}
+
+func (s *Session) flushOpStats() {
+	incrOpTotal(s.stats.total.Swap(0))
+	for _, e := range s.stats.opmap {
+		if n := e.calls.Swap(0); n != 0 {
+			incrOpStats(e.opstr, n, e.usecs.Swap(0))
+		}
+		delete(s.stats.opmap, e.opstr)
+	}
 }

@@ -98,17 +98,17 @@ func GetOpStatsAll() []*OpStats {
 	return all
 }
 
-func incrOpTotal() {
-	cmdstats.total.Incr()
+func incrOpTotal(n int64) {
+	cmdstats.total.Add(n)
 }
 
 func incrOpFails() {
 	cmdstats.fails.Incr()
 }
 
-func incrOpStats(opstr string, usecs int64) {
+func incrOpStats(opstr string, calls int64, usecs int64) {
 	s := getOpStats(opstr, true)
-	s.calls.Incr()
+	s.calls.Add(calls)
 	s.usecs.Add(usecs)
 }
 
