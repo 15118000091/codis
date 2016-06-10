@@ -36,7 +36,7 @@ distclean: clean
 	@make --no-print-directory --quiet -C extern/redis-2.8.21 clean
 
 gotest: codis-deps
-	go test ./pkg/...
+	go test ./cmd/... ./pkg/...
 
 docker:
 	docker build --force-rm -t codis-image .
