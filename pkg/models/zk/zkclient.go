@@ -6,6 +6,7 @@ package zkclient
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -50,6 +51,9 @@ func New(addr string, timeout time.Duration) (*ZkClient, error) {
 }
 
 func NewWithLogfunc(addr string, timeout time.Duration, logfunc func(foramt string, v ...interface{})) (*ZkClient, error) {
+	if timeout <= 0 {
+		timeout = time.Second * 5
+	}
 	c := &ZkClient{
 		addr: addr, timeout: timeout, logger: &zkLogger{logfunc},
 	}
@@ -71,7 +75,7 @@ func (c *ZkClient) reset() error {
 	c.conn = conn
 	c.conn.SetLogger(c.logger)
 
-	c.logger.Printf("zkclient create new connection to %s", c.addr)
+	c.logger.Printf("zkclient setup new connection to %s", c.addr)
 
 	go func() {
 		for e := range events {
@@ -101,54 +105,60 @@ func (c *ZkClient) Do(fn func(conn *zk.Conn) error) error {
 	if c.closed {
 		return errors.Trace(ErrClosedZkClient)
 	}
-	return c.do(fn)
+	return c.shell(fn)
 }
 
-func (c *ZkClient) do(fn func(conn *zk.Conn) error) error {
+func (c *ZkClient) shell(fn func(conn *zk.Conn) error) error {
 	if err := fn(c.conn); err != nil {
 		for _, e := range []error{zk.ErrNoNode, zk.ErrNodeExists, zk.ErrNotEmpty} {
 			if errors.Equal(e, err) {
 				return err
 			}
 		}
-		if time.Now().After(c.dialAt.Add(time.Second)) {
-			c.reset()
+		if retryAt := c.dialAt.Add(time.Second); time.Now().After(retryAt) {
+			if err := c.reset(); err != nil {
+				log.DebugErrorf(err, "zkclient reset connection failed")
+			}
 		}
 		return err
 	}
 	return nil
 }
 
-func (c *ZkClient) Mkdir(dir string) error {
+func (c *ZkClient) Mkdir(path string) error {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
 		return errors.Trace(ErrClosedZkClient)
 	}
-	return c.do(func(conn *zk.Conn) error {
-		return c.mkdir(conn, dir)
+	log.Debugf("zkclient mkdir node %s", path)
+	err := c.shell(func(conn *zk.Conn) error {
+		return c.mkdir(conn, path)
 	})
+	if err != nil {
+		log.Debugf("zkclient mkdir node %s failed: %s", path, err)
+		return err
+	}
+	log.Debugf("zkclient mkdir OK")
+	return nil
 }
 
-func (c *ZkClient) mkdir(conn *zk.Conn, dir string) error {
-	if dir == "" || dir == "/" {
+func (c *ZkClient) mkdir(conn *zk.Conn, path string) error {
+	if path == "" || path == "/" {
 		return nil
 	}
-	if exists, _, err := conn.Exists(dir); err != nil {
+	if exists, _, err := conn.Exists(path); err != nil {
 		return errors.Trace(err)
 	} else if exists {
 		return nil
 	}
-	if err := c.mkdir(conn, filepath.Dir(dir)); err != nil {
+	if err := c.mkdir(conn, filepath.Dir(path)); err != nil {
 		return err
 	}
-	log.Debugf("zkclient mkdir = %s", dir)
-	_, err := conn.Create(dir, []byte{}, 0, zk.WorldACL(zk.PermAll))
+	_, err := conn.Create(path, []byte{}, 0, zk.WorldACL(zk.PermAll))
 	if err != nil {
-		log.Debugf("zkclient mkdir = %s failed: %s", dir, err)
 		return errors.Trace(err)
 	}
-	log.Debugf("zkclient mkdir OK")
 	return nil
 }
 
@@ -158,9 +168,17 @@ func (c *ZkClient) Create(path string, data []byte) error {
 	if c.closed {
 		return errors.Trace(ErrClosedZkClient)
 	}
-	return c.do(func(conn *zk.Conn) error {
-		return c.create(conn, path, data, false)
+	log.Debugf("zkclient create node %s", path)
+	err := c.shell(func(conn *zk.Conn) error {
+		_, err := c.create(conn, path, data, 0)
+		return err
 	})
+	if err != nil {
+		log.Debugf("zkclient create node %s failed: %s", path, err)
+		return err
+	}
+	log.Debugf("zkclient create OK")
+	return nil
 }
 
 func (c *ZkClient) CreateEphemeral(path string, data []byte) (<-chan struct{}, error) {
@@ -169,45 +187,51 @@ func (c *ZkClient) CreateEphemeral(path string, data []byte) (<-chan struct{}, e
 	if c.closed {
 		return nil, errors.Trace(ErrClosedZkClient)
 	}
-	var watch chan struct{}
-	err := c.do(func(conn *zk.Conn) error {
-		if err := c.create(conn, path, data, true); err != nil {
+	var signal <-chan struct{}
+	log.Debugf("zkclient create-ephemeral node %s", path)
+	err := c.shell(func(conn *zk.Conn) error {
+		p, err := c.create(conn, path, data, zk.FlagEphemeral)
+		if err != nil {
 			return err
 		}
-		log.Debugf("zkclient create-ephemeral %s", path)
-		if _, _, w, err := conn.GetW(path); err != nil {
-			log.Debugf("zkclient create-ephemeral %s failed: %s", path, err)
-			return errors.Trace(err)
-		} else {
-			log.Debugf("zkclient create-ephemeral OK")
-			watch = make(chan struct{})
-			go func() {
-				<-w
-				close(watch)
-				log.Debugf("zkclient watching node %s lost", path)
-			}()
-			return nil
+		w, err := c.watch(conn, p)
+		if err != nil {
+			return err
 		}
+		signal = w
+		return nil
 	})
-	return watch, err
+	if err != nil {
+		log.Debugf("zkclient create-ephemeral node %s failed: %s", path, err)
+		return nil, err
+	}
+	log.Debugf("zkclient create-ephemeral OK", path)
+	return signal, nil
 }
 
-func (c *ZkClient) create(conn *zk.Conn, path string, data []byte, ephemeral bool) error {
+func (c *ZkClient) create(conn *zk.Conn, path string, data []byte, flag int32) (string, error) {
 	if err := c.mkdir(conn, filepath.Dir(path)); err != nil {
-		return err
+		return "", err
 	}
-	var flag int32
-	if ephemeral {
-		flag |= zk.FlagEphemeral
-	}
-	log.Debugf("zkclient create node %s", path)
-	_, err := conn.Create(path, data, flag, zk.WorldACL(zk.PermAdmin|zk.PermRead|zk.PermWrite))
+	p, err := conn.Create(path, data, flag, zk.WorldACL(zk.PermAdmin|zk.PermRead|zk.PermWrite))
 	if err != nil {
-		log.Debugf("zkclient create node %s failed: %s", path, err)
-		return errors.Trace(err)
+		return "", errors.Trace(err)
 	}
-	log.Debugf("zkclient create node OK")
-	return nil
+	return p, nil
+}
+
+func (c *ZkClient) watch(conn *zk.Conn, path string) (<-chan struct{}, error) {
+	_, _, w, err := conn.GetW(path)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	signal := make(chan struct{})
+	go func() {
+		defer close(signal)
+		<-w
+		log.Debugf("zkclient watch node %s update", path)
+	}()
+	return signal, nil
 }
 
 func (c *ZkClient) Update(path string, data []byte) error {
@@ -216,28 +240,31 @@ func (c *ZkClient) Update(path string, data []byte) error {
 	if c.closed {
 		return errors.Trace(ErrClosedZkClient)
 	}
-	return c.do(func(conn *zk.Conn) error {
+	log.Debugf("zkclient update node %s", path)
+	err := c.shell(func(conn *zk.Conn) error {
 		return c.update(conn, path, data)
 	})
+	if err != nil {
+		log.Debugf("zkclient update node %s failed: %s", path, err)
+		return err
+	}
+	log.Debugf("zkclient update OK")
+	return nil
 }
 
 func (c *ZkClient) update(conn *zk.Conn, path string, data []byte) error {
 	if exists, _, err := conn.Exists(path); err != nil {
 		return errors.Trace(err)
 	} else if !exists {
-		if err := c.create(conn, path, data, false); err != nil {
-			if errors.NotEqual(err, zk.ErrNodeExists) {
-				return err
-			}
+		_, err := c.create(conn, path, data, 0)
+		if err != nil && errors.NotEqual(err, zk.ErrNodeExists) {
+			return err
 		}
 	}
-	log.Debugf("zkclient update node %s", path)
 	_, err := conn.Set(path, data, -1)
 	if err != nil {
-		log.Debugf("zkclient update node %s failed: %s", path, err)
 		return errors.Trace(err)
 	}
-	log.Debugf("zkclient update node OK")
 	return nil
 }
 
@@ -247,17 +274,20 @@ func (c *ZkClient) Delete(path string) error {
 	if c.closed {
 		return errors.Trace(ErrClosedZkClient)
 	}
-	return c.do(func(conn *zk.Conn) error {
-		log.Debugf("zkclient delete node %s", path)
-		if err := conn.Delete(path, -1); err != nil {
-			if errors.NotEqual(err, zk.ErrNoNode) {
-				log.Debugf("zkclient delete node %s failed: %s", path, err)
-				return errors.Trace(err)
-			}
+	log.Debugf("zkclient delete node %s", path)
+	err := c.shell(func(conn *zk.Conn) error {
+		err := conn.Delete(path, -1)
+		if err != nil && errors.NotEqual(err, zk.ErrNoNode) {
+			return errors.Trace(err)
 		}
-		log.Debugf("zkclient delete node OK")
 		return nil
 	})
+	if err != nil {
+		log.Debugf("zkclient delete node %s failed: %s", path, err)
+		return err
+	}
+	log.Debugf("zkclient delete OK")
+	return nil
 }
 
 func (c *ZkClient) Read(path string) ([]byte, error) {
@@ -267,18 +297,19 @@ func (c *ZkClient) Read(path string) ([]byte, error) {
 		return nil, errors.Trace(ErrClosedZkClient)
 	}
 	var data []byte
-	err := c.do(func(conn *zk.Conn) error {
-		log.Debugf("zkclient read node %s", path)
-		if bytes, _, err := conn.Get(path); err != nil {
-			if errors.NotEqual(err, zk.ErrNoNode) {
-				return errors.Trace(err)
-			}
-		} else {
-			data = bytes
+	err := c.shell(func(conn *zk.Conn) error {
+		b, _, err := conn.Get(path)
+		if err != nil && errors.NotEqual(err, zk.ErrNoNode) {
+			return errors.Trace(err)
 		}
+		data = b
 		return nil
 	})
-	return data, err
+	if err != nil {
+		log.Debugf("zkclient read node %s failed: %s", path, err)
+		return nil, err
+	}
+	return data, nil
 }
 
 func (c *ZkClient) List(path string) ([]string, error) {
@@ -287,19 +318,89 @@ func (c *ZkClient) List(path string) ([]string, error) {
 	if c.closed {
 		return nil, errors.Trace(ErrClosedZkClient)
 	}
-	var list []string
-	err := c.do(func(conn *zk.Conn) error {
-		log.Debugf("zkclient list node %s", path)
-		if files, _, err := conn.Children(path); err != nil {
-			if errors.NotEqual(err, zk.ErrNoNode) {
-				return errors.Trace(err)
-			}
-		} else {
-			for _, file := range files {
-				list = append(list, filepath.Join(path, file))
-			}
+	var paths []string
+	err := c.shell(func(conn *zk.Conn) error {
+		nodes, _, err := conn.Children(path)
+		if err != nil && errors.NotEqual(err, zk.ErrNoNode) {
+			return errors.Trace(err)
+		}
+		for _, node := range nodes {
+			paths = append(paths, filepath.Join(path, node))
 		}
 		return nil
 	})
-	return list, err
+	if err != nil {
+		log.Debugf("zkclient list node %s failed: %s", path, err)
+		return nil, err
+	}
+	return paths, nil
+}
+
+func (c *ZkClient) CreateEphemeralInOrder(path string, data []byte) (<-chan struct{}, string, error) {
+	c.Lock()
+	defer c.Unlock()
+	if c.closed {
+		return nil, "", errors.Trace(ErrClosedZkClient)
+	}
+	if !strings.HasSuffix(path, "/") {
+		path += "/"
+	}
+	var signal <-chan struct{}
+	var node string
+	log.Debugf("zkclient create-ephemeral-inorder node %s", path)
+	err := c.shell(func(conn *zk.Conn) error {
+		p, err := c.create(conn, path, data, zk.FlagEphemeral|zk.FlagSequence)
+		if err != nil {
+			return err
+		}
+		w, err := c.watch(conn, p)
+		if err != nil {
+			return err
+		}
+		signal, node = w, p
+		return nil
+	})
+	if err != nil {
+		log.Debugf("zkclient create-ephemeral-inorder node %s failed: %s", path, err)
+		return nil, "", err
+	}
+	log.Debugf("zkclient create-ephemeral-inorder OK, node = %s", node)
+	return signal, node, nil
+}
+
+func (c *ZkClient) ListEphemeralInOrder(path string) (<-chan struct{}, []string, error) {
+	if err := c.Mkdir(path); err != nil {
+		return nil, nil, err
+	}
+	c.Lock()
+	defer c.Unlock()
+	if c.closed {
+		return nil, nil, errors.Trace(ErrClosedZkClient)
+	}
+	var signal chan struct{}
+	var paths []string
+	log.Debugf("zkclient list-ephemeral-inorder node %s", path)
+	err := c.shell(func(conn *zk.Conn) error {
+		nodes, _, w, err := conn.ChildrenW(path)
+		if err != nil {
+			return err
+		}
+		sort.Strings(nodes)
+		for _, node := range nodes {
+			paths = append(paths, filepath.Join(path, node))
+		}
+		signal = make(chan struct{})
+		go func() {
+			defer close(signal)
+			<-w
+			log.Debugf("zkclient list-ephemeral-inorder node %s update", path)
+		}()
+		return nil
+	})
+	if err != nil {
+		log.Debugf("zkclient list-ephemeral-inorder node %s failed: %s", path, err)
+		return nil, nil, err
+	}
+	log.Debugf("zkclient list-ephemeral-inorder OK")
+	return signal, paths, nil
 }
