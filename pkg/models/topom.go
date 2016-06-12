@@ -4,6 +4,7 @@
 package models
 
 type Topom struct {
+	Token     string `json:"token"`
 	StartTime string `json:"start_time"`
 	AdminAddr string `json:"admin_addr"`
 
@@ -16,4 +17,12 @@ type Topom struct {
 
 func (t *Topom) Encode() []byte {
 	return jsonEncode(t)
+}
+
+func DecodeTopom(b []byte) (*Topom, error) {
+	var t = &Topom{}
+	if err := jsonDecode(t, b); err != nil {
+		return nil, err
+	}
+	return t, nil
 }

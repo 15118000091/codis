@@ -24,6 +24,7 @@ import (
 type Topom struct {
 	mu sync.Mutex
 
+	token string
 	xauth string
 	model *models.Topom
 	store *models.Store
@@ -71,9 +72,10 @@ func New(client models.Client, config *Config) (*Topom, error) {
 		return nil, errors.Errorf("invalid product name = %s", config.ProductName)
 	}
 	s := &Topom{config: config, store: models.NewStore(client, config.ProductName)}
+	s.token = rpc.NewToken()
 	s.xauth = rpc.NewXAuth(config.ProductName)
 	s.model = &models.Topom{
-		StartTime: time.Now().String(),
+		Token: s.token, StartTime: time.Now().String(),
 	}
 	s.model.ProductName = config.ProductName
 	s.model.Pid = os.Getpid()
