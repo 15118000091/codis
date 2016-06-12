@@ -290,3 +290,45 @@ func (c *EtcdClient) RefreshEphemeral(path string) error {
 	log.Debugf("etcd refresh-ephemeral OK")
 	return nil
 }
+
+func (c *EtcdClient) WatchInOrder(path string) (<-chan struct{}, []string, error) {
+	c.Lock()
+	defer c.Unlock()
+	if c.closed {
+		return nil, nil, errors.Trace(ErrClosedEtcdClient)
+	}
+	log.Debugf("etcd watch-inorder node %s", path)
+	cntx, cancel := c.newContext()
+	defer cancel()
+	r, err := c.kapi.Get(cntx, path, &client.GetOptions{Quorum: true, Sort: true})
+	switch {
+	case err != nil:
+		log.Debugf("etcd watch-inorder node %s failed: %s", path, err)
+		return nil, nil, errors.Trace(err)
+	case !r.Node.Dir:
+		log.Debugf("etcd watch-inorder node %s failed: not a dir", path)
+		return nil, nil, errors.Trace(ErrNotDir)
+	}
+	var index = r.Index
+	var files []string
+	for _, node := range r.Node.Nodes {
+		files = append(files, node.Key)
+	}
+	signal := make(chan struct{})
+	go func() {
+		defer close(signal)
+		watch := c.kapi.Watcher(path, &client.WatcherOptions{AfterIndex: index, Recursive: true})
+		for {
+			r, err := watch.Next(c.context)
+			switch {
+			case err != nil:
+				log.Debugf("etch watch-inorder %s failed: %s", path, err)
+				return
+			case r.Action != "get":
+				log.Debugf("etcd watch-inorder %s update", path)
+				return
+			}
+		}
+	}()
+	return signal, files, nil
+}
