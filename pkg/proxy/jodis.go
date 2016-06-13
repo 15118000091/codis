@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/CodisLabs/codis/pkg/models"
+	"github.com/CodisLabs/codis/pkg/models/zk"
 	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"

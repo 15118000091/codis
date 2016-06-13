@@ -16,14 +16,14 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
 
-var ErrClosedEtcdClient = errors.New("use of closed etcd client")
+var ErrClosedClient = errors.New("use of closed etcd client")
 
 var (
 	ErrNotDir  = errors.New("etcd: not a dir")
 	ErrNotFile = errors.New("etcd: not a file")
 )
 
-type EtcdClient struct {
+type Client struct {
 	sync.Mutex
 	kapi client.KeysAPI
 
@@ -34,7 +34,7 @@ type EtcdClient struct {
 	context context.Context
 }
 
-func New(addrlist string, timeout time.Duration) (*EtcdClient, error) {
+func New(addrlist string, timeout time.Duration) (*Client, error) {
 	endpoints := strings.Split(addrlist, ",")
 	for i, s := range endpoints {
 		if s != "" && !strings.HasPrefix(s, "http://") {
@@ -53,14 +53,14 @@ func New(addrlist string, timeout time.Duration) (*EtcdClient, error) {
 		return nil, errors.Trace(err)
 	}
 
-	client := &EtcdClient{
+	client := &Client{
 		kapi: client.NewKeysAPI(c), timeout: timeout,
 	}
 	client.context, client.cancel = context.WithCancel(context.Background())
 	return client, nil
 }
 
-func (c *EtcdClient) Close() error {
+func (c *Client) Close() error {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
@@ -71,7 +71,7 @@ func (c *EtcdClient) Close() error {
 	return nil
 }
 
-func (c *EtcdClient) newContext() (context.Context, context.CancelFunc) {
+func (c *Client) newContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(c.context, c.timeout)
 }
 
@@ -93,11 +93,11 @@ func isErrNodeExists(err error) bool {
 	return false
 }
 
-func (c *EtcdClient) Mkdir(path string) error {
+func (c *Client) Mkdir(path string) error {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
-		return errors.Trace(ErrClosedEtcdClient)
+		return errors.Trace(ErrClosedClient)
 	}
 	log.Debugf("etcd mkdir node %s", path)
 	cntx, cancel := c.newContext()
@@ -111,11 +111,11 @@ func (c *EtcdClient) Mkdir(path string) error {
 	return nil
 }
 
-func (c *EtcdClient) Create(path string, data []byte) error {
+func (c *Client) Create(path string, data []byte) error {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
-		return errors.Trace(ErrClosedEtcdClient)
+		return errors.Trace(ErrClosedClient)
 	}
 	cntx, cancel := c.newContext()
 	defer cancel()
@@ -129,11 +129,11 @@ func (c *EtcdClient) Create(path string, data []byte) error {
 	return nil
 }
 
-func (c *EtcdClient) Update(path string, data []byte) error {
+func (c *Client) Update(path string, data []byte) error {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
-		return errors.Trace(ErrClosedEtcdClient)
+		return errors.Trace(ErrClosedClient)
 	}
 	cntx, cancel := c.newContext()
 	defer cancel()
@@ -147,11 +147,11 @@ func (c *EtcdClient) Update(path string, data []byte) error {
 	return nil
 }
 
-func (c *EtcdClient) Delete(path string) error {
+func (c *Client) Delete(path string) error {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
-		return errors.Trace(ErrClosedEtcdClient)
+		return errors.Trace(ErrClosedClient)
 	}
 	cntx, cancel := c.newContext()
 	defer cancel()
@@ -165,11 +165,11 @@ func (c *EtcdClient) Delete(path string) error {
 	return nil
 }
 
-func (c *EtcdClient) Read(path string) ([]byte, error) {
+func (c *Client) Read(path string) ([]byte, error) {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
-		return nil, errors.Trace(ErrClosedEtcdClient)
+		return nil, errors.Trace(ErrClosedClient)
 	}
 	cntx, cancel := c.newContext()
 	defer cancel()
@@ -189,11 +189,11 @@ func (c *EtcdClient) Read(path string) ([]byte, error) {
 	}
 }
 
-func (c *EtcdClient) List(path string) ([]string, error) {
+func (c *Client) List(path string) ([]string, error) {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
-		return nil, errors.Trace(ErrClosedEtcdClient)
+		return nil, errors.Trace(ErrClosedClient)
 	}
 	cntx, cancel := c.newContext()
 	defer cancel()
@@ -217,11 +217,11 @@ func (c *EtcdClient) List(path string) ([]string, error) {
 	}
 }
 
-func (c *EtcdClient) CreateEphemeral(path string, data []byte) (<-chan struct{}, error) {
+func (c *Client) CreateEphemeral(path string, data []byte) (<-chan struct{}, error) {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
-		return nil, errors.Trace(ErrClosedEtcdClient)
+		return nil, errors.Trace(ErrClosedClient)
 	}
 	cntx, cancel := c.newContext()
 	defer cancel()
@@ -235,11 +235,11 @@ func (c *EtcdClient) CreateEphemeral(path string, data []byte) (<-chan struct{},
 	return runRefreshEphemeral(c, path), nil
 }
 
-func (c *EtcdClient) CreateEphemeralInOrder(path string, data []byte) (<-chan struct{}, string, error) {
+func (c *Client) CreateEphemeralInOrder(path string, data []byte) (<-chan struct{}, string, error) {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
-		return nil, "", errors.Trace(ErrClosedEtcdClient)
+		return nil, "", errors.Trace(ErrClosedClient)
 	}
 	cntx, cancel := c.newContext()
 	defer cancel()
@@ -254,7 +254,7 @@ func (c *EtcdClient) CreateEphemeralInOrder(path string, data []byte) (<-chan st
 	return runRefreshEphemeral(c, node), node, nil
 }
 
-func runRefreshEphemeral(c *EtcdClient, path string) <-chan struct{} {
+func runRefreshEphemeral(c *Client, path string) <-chan struct{} {
 	signal := make(chan struct{})
 	go func() {
 		defer close(signal)
@@ -269,11 +269,11 @@ func runRefreshEphemeral(c *EtcdClient, path string) <-chan struct{} {
 	return signal
 }
 
-func (c *EtcdClient) RefreshEphemeral(path string) error {
+func (c *Client) RefreshEphemeral(path string) error {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
-		return errors.Trace(ErrClosedEtcdClient)
+		return errors.Trace(ErrClosedClient)
 	}
 	cntx, cancel := c.newContext()
 	defer cancel()
@@ -287,14 +287,14 @@ func (c *EtcdClient) RefreshEphemeral(path string) error {
 	return nil
 }
 
-func (c *EtcdClient) ListEphemeralInOrder(path string) (<-chan struct{}, []string, error) {
+func (c *Client) ListEphemeralInOrder(path string) (<-chan struct{}, []string, error) {
 	if err := c.Mkdir(path); err != nil {
 		return nil, nil, err
 	}
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
-		return nil, nil, errors.Trace(ErrClosedEtcdClient)
+		return nil, nil, errors.Trace(ErrClosedClient)
 	}
 	log.Debugf("etcd list-ephemeral-inorder node %s", path)
 	cntx, cancel := c.newContext()
