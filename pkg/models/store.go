@@ -71,7 +71,7 @@ func (s *Store) Release() error {
 func (s *Store) SlotMappings() ([]*SlotMapping, error) {
 	slots := make([]*SlotMapping, MaxSlotNum)
 	for i := 0; i < len(slots); i++ {
-		m, err := s.LoadSlotMapping(i)
+		m, err := s.LoadSlotMapping(i, false)
 		if err != nil {
 			return nil, err
 		}
@@ -84,8 +84,8 @@ func (s *Store) SlotMappings() ([]*SlotMapping, error) {
 	return slots, nil
 }
 
-func (s *Store) LoadSlotMapping(sid int) (*SlotMapping, error) {
-	b, err := s.client.Read(s.SlotPath(sid), false)
+func (s *Store) LoadSlotMapping(sid int, must bool) (*SlotMapping, error) {
+	b, err := s.client.Read(s.SlotPath(sid), must)
 	if err != nil || b == nil {
 		return nil, err
 	}
@@ -120,9 +120,9 @@ func (s *Store) ListGroup() (map[int]*Group, error) {
 	return group, nil
 }
 
-func (s *Store) LoadGroup(gid int) (*Group, error) {
-	b, err := s.client.Read(s.GroupPath(gid), true)
-	if err != nil {
+func (s *Store) LoadGroup(gid int, must bool) (*Group, error) {
+	b, err := s.client.Read(s.GroupPath(gid), must)
+	if err != nil || b == nil {
 		return nil, err
 	}
 	g := &Group{}
@@ -160,9 +160,9 @@ func (s *Store) ListProxy() (map[string]*Proxy, error) {
 	return proxy, nil
 }
 
-func (s *Store) LoadProxy(token string) (*Proxy, error) {
-	b, err := s.client.Read(s.ProxyPath(token), true)
-	if err != nil {
+func (s *Store) LoadProxy(token string, must bool) (*Proxy, error) {
+	b, err := s.client.Read(s.ProxyPath(token), must)
+	if err != nil || b == nil {
 		return nil, err
 	}
 	p := &Proxy{}
@@ -185,8 +185,8 @@ func (s *Store) CreateTopomClusterEphemeral(topom *Topom) (<-chan struct{}, erro
 	return w, err
 }
 
-func (s *Store) LoadTopomClusterEphemeral(name string) (*Topom, error) {
-	b, err := s.client.Read(s.TopomClusterPath(name), false)
+func (s *Store) LoadTopomClusterEphemeral(name string, must bool) (*Topom, error) {
+	b, err := s.client.Read(s.TopomClusterPath(name), must)
 	if err != nil || b == nil {
 		return nil, err
 	}
