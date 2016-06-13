@@ -189,11 +189,11 @@ func (c *memClient) Delete(path string) error {
 	return nil
 }
 
-func (c *memClient) Read(path string) ([]byte, error) {
+func (c *memClient) Read(path string, must bool) ([]byte, error) {
 	return c.data[path], nil
 }
 
-func (c *memClient) List(path string) ([]string, error) {
+func (c *memClient) List(path string, must bool) ([]string, error) {
 	path = filepath.Clean(path)
 	var list []string
 	for k, _ := range c.data {
