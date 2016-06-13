@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/CodisLabs/codis/pkg/models"
-	"github.com/CodisLabs/codis/pkg/models/zk"
 	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
@@ -42,7 +41,7 @@ func NewJodis(c models.Client, p *models.Proxy) *Jodis {
 		log.PanicErrorf(err, "json marshal failed")
 	}
 	var path string
-	if _, ok := c.(*zkclient.Client); ok {
+	if models.IsZkClient(c) {
 		path = models.JoinPath("/zk/codis", fmt.Sprintf("db_%s", p.ProductName), "proxy", p.Token)
 	} else {
 		path = models.JoinPath("/jodis", p.ProductName, p.Token)

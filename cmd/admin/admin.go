@@ -110,22 +110,11 @@ type ConfigV3 struct {
 	Proxy []*models.Proxy       `json:"proxy,omitempty"`
 }
 
-func (t *cmdAdmin) loadAndDecode(client models.Client, path string, v interface{}) {
-	b, err := client.Read(path)
-	if err != nil {
-		log.PanicErrorf(err, "load path = %s failed", path)
-	}
-	if err := json.Unmarshal(b, v); err != nil {
-		log.PanicErrorf(err, "decode path = %s failed", path)
-	}
-	log.Debugf("load & decode path = %s", path)
-}
-
 func (t *cmdAdmin) dumpConfigV1(d map[string]interface{}) {
 	client := t.newTopomClient(d)
 	defer client.Close()
 
-	prefix := filepath.Join("/zk/codis", fmt.Sprintf("db_%s", t.product))
+	prefix := models.JoinPath("/zk/codis", fmt.Sprintf("db_%s", t.product))
 	config := t.dumpConfigV1Recursively(client, prefix)
 	if m, ok := config.(map[string]interface{}); !ok || m == nil {
 		log.Panicf("cann't find product = %s [v1]", t.product)
@@ -138,7 +127,7 @@ func (t *cmdAdmin) dumpConfigV1(d map[string]interface{}) {
 }
 
 func (t *cmdAdmin) dumpConfigV1Recursively(client models.Client, path string) interface{} {
-	files, err := client.List(path)
+	files, err := client.List(path, false)
 	if err != nil {
 		log.PanicErrorf(err, "list path = %s failed", path)
 	}
@@ -149,7 +138,7 @@ func (t *cmdAdmin) dumpConfigV1Recursively(client models.Client, path string) in
 		}
 		return m
 	}
-	b, err := client.Read(path)
+	b, err := client.Read(path, false)
 	if err != nil {
 		log.PanicErrorf(err, "read file = %s failed", path)
 	}
@@ -416,7 +405,7 @@ func (t *cmdAdmin) handleDashboardList(d map[string]interface{}) {
 	client := t.newTopomClient(d)
 	defer client.Close()
 
-	list, err := client.List("/codis3")
+	list, err := client.List("/codis3", false)
 	if err != nil {
 		log.PanicErrorf(err, "list products failed")
 	}
@@ -429,7 +418,7 @@ func (t *cmdAdmin) handleDashboardList(d map[string]interface{}) {
 			Dashboard string `json:"dashboard"`
 		}{filepath.Base(path), ""}
 
-		if b, err := client.Read(filepath.Join(path, "topom")); err != nil {
+		if b, err := client.Read(models.JoinPath(path, "topom"), false); err != nil {
 			log.PanicErrorf(err, "read topom of product %s failed", elem.Name)
 		} else if b != nil {
 			var t = &models.Topom{}

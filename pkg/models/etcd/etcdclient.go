@@ -165,7 +165,7 @@ func (c *Client) Delete(path string) error {
 	return nil
 }
 
-func (c *Client) Read(path string) ([]byte, error) {
+func (c *Client) Read(path string, must bool) ([]byte, error) {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
@@ -176,7 +176,7 @@ func (c *Client) Read(path string) ([]byte, error) {
 	r, err := c.kapi.Get(cntx, path, &client.GetOptions{Quorum: true})
 	switch {
 	case err != nil:
-		if isErrNoNode(err) {
+		if isErrNoNode(err) && !must {
 			return nil, nil
 		}
 		log.Debugf("etcd read node %s failed: %s", path, err)
@@ -189,7 +189,7 @@ func (c *Client) Read(path string) ([]byte, error) {
 	}
 }
 
-func (c *Client) List(path string) ([]string, error) {
+func (c *Client) List(path string, must bool) ([]string, error) {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
@@ -200,7 +200,7 @@ func (c *Client) List(path string) ([]string, error) {
 	r, err := c.kapi.Get(cntx, path, &client.GetOptions{Quorum: true})
 	switch {
 	case err != nil:
-		if isErrNoNode(err) {
+		if isErrNoNode(err) && !must {
 			return nil, nil
 		}
 		log.Debugf("etcd list node %s failed: %s", path, err)

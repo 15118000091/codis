@@ -290,7 +290,7 @@ func (c *Client) Delete(path string) error {
 	return nil
 }
 
-func (c *Client) Read(path string) ([]byte, error) {
+func (c *Client) Read(path string, must bool) ([]byte, error) {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
@@ -299,7 +299,10 @@ func (c *Client) Read(path string) ([]byte, error) {
 	var data []byte
 	err := c.shell(func(conn *zk.Conn) error {
 		b, _, err := conn.Get(path)
-		if err != nil && errors.NotEqual(err, zk.ErrNoNode) {
+		if err != nil {
+			if errors.Equal(err, zk.ErrNoNode) && !must {
+				return nil
+			}
 			return errors.Trace(err)
 		}
 		data = b
@@ -312,7 +315,7 @@ func (c *Client) Read(path string) ([]byte, error) {
 	return data, nil
 }
 
-func (c *Client) List(path string) ([]string, error) {
+func (c *Client) List(path string, must bool) ([]string, error) {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
@@ -321,7 +324,10 @@ func (c *Client) List(path string) ([]string, error) {
 	var paths []string
 	err := c.shell(func(conn *zk.Conn) error {
 		nodes, _, err := conn.Children(path)
-		if err != nil && errors.NotEqual(err, zk.ErrNoNode) {
+		if err != nil {
+			if errors.Equal(err, zk.ErrNoNode) && !must {
+				return nil
+			}
 			return errors.Trace(err)
 		}
 		for _, node := range nodes {

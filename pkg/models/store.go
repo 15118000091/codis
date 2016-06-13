@@ -6,40 +6,7 @@ package models
 import (
 	"fmt"
 	"path/filepath"
-	"time"
-
-	"github.com/CodisLabs/codis/pkg/models/etcd"
-	"github.com/CodisLabs/codis/pkg/models/zk"
-	"github.com/CodisLabs/codis/pkg/utils/errors"
 )
-
-type Client interface {
-	Create(path string, data []byte) error
-	Update(path string, data []byte) error
-	Delete(path string) error
-
-	Read(path string) ([]byte, error)
-	List(path string) ([]string, error)
-
-	Close() error
-
-	CreateEphemeral(path string, data []byte) (<-chan struct{}, error)
-	CreateEphemeralInOrder(path string, data []byte) (<-chan struct{}, string, error)
-
-	ListEphemeralInOrder(path string) (<-chan struct{}, []string, error)
-}
-
-var ErrUnknownCoordinator = errors.New("unknown coordinator type")
-
-func NewClient(coordinator string, addrlist string, timeout time.Duration) (Client, error) {
-	switch coordinator {
-	case "zk", "zookeeper":
-		return zkclient.New(addrlist, timeout)
-	case "etcd":
-		return etcdclient.New(addrlist, timeout)
-	}
-	return nil, errors.Trace(ErrUnknownCoordinator)
-}
 
 func JoinPath(elem ...string) string {
 	return filepath.ToSlash(filepath.Join(elem...))
@@ -118,7 +85,7 @@ func (s *Store) SlotMappings() ([]*SlotMapping, error) {
 }
 
 func (s *Store) LoadSlotMapping(sid int) (*SlotMapping, error) {
-	b, err := s.client.Read(s.SlotPath(sid))
+	b, err := s.client.Read(s.SlotPath(sid), false)
 	if err != nil || b == nil {
 		return nil, err
 	}
@@ -134,13 +101,13 @@ func (s *Store) UpdateSlotMapping(m *SlotMapping) error {
 }
 
 func (s *Store) ListGroup() (map[int]*Group, error) {
-	paths, err := s.client.List(s.GroupBase())
+	paths, err := s.client.List(s.GroupBase(), false)
 	if err != nil {
 		return nil, err
 	}
 	group := make(map[int]*Group)
 	for _, path := range paths {
-		b, err := s.client.Read(path)
+		b, err := s.client.Read(path, true)
 		if err != nil {
 			return nil, err
 		}
@@ -154,8 +121,8 @@ func (s *Store) ListGroup() (map[int]*Group, error) {
 }
 
 func (s *Store) LoadGroup(gid int) (*Group, error) {
-	b, err := s.client.Read(s.GroupPath(gid))
-	if err != nil || b == nil {
+	b, err := s.client.Read(s.GroupPath(gid), true)
+	if err != nil {
 		return nil, err
 	}
 	g := &Group{}
@@ -174,13 +141,13 @@ func (s *Store) DeleteGroup(gid int) error {
 }
 
 func (s *Store) ListProxy() (map[string]*Proxy, error) {
-	paths, err := s.client.List(s.ProxyBase())
+	paths, err := s.client.List(s.ProxyBase(), false)
 	if err != nil {
 		return nil, err
 	}
 	proxy := make(map[string]*Proxy)
 	for _, path := range paths {
-		b, err := s.client.Read(path)
+		b, err := s.client.Read(path, true)
 		if err != nil {
 			return nil, err
 		}
@@ -194,8 +161,8 @@ func (s *Store) ListProxy() (map[string]*Proxy, error) {
 }
 
 func (s *Store) LoadProxy(token string) (*Proxy, error) {
-	b, err := s.client.Read(s.ProxyPath(token))
-	if err != nil || b == nil {
+	b, err := s.client.Read(s.ProxyPath(token), true)
+	if err != nil {
 		return nil, err
 	}
 	p := &Proxy{}
@@ -219,18 +186,15 @@ func (s *Store) CreateTopomClusterEphemeral(topom *Topom) (<-chan struct{}, erro
 }
 
 func (s *Store) LoadTopomClusterEphemeral(name string) (*Topom, error) {
-	b, err := s.client.Read(s.TopomClusterPath(name))
-	if err != nil {
+	b, err := s.client.Read(s.TopomClusterPath(name), false)
+	if err != nil || b == nil {
 		return nil, err
 	}
-	if b != nil {
-		var t = &Topom{}
-		if err := jsonDecode(t, b); err != nil {
-			return nil, err
-		}
-		return t, nil
+	t := &Topom{}
+	if err := jsonDecode(t, b); err != nil {
+		return nil, err
 	}
-	return nil, nil
+	return t, nil
 }
 
 func (s *Store) WatchTopomClusterLeader() (<-chan struct{}, string, error) {
