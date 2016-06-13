@@ -13,7 +13,6 @@ import (
 
 	"github.com/samuel/go-zookeeper/zk"
 
-	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
@@ -326,7 +325,7 @@ func (c *ZkClient) List(path string) ([]string, error) {
 			return errors.Trace(err)
 		}
 		for _, node := range nodes {
-			paths = append(paths, models.EncodePath(path, node))
+			paths = append(paths, (path + "/" + node))
 		}
 		return nil
 	})
@@ -388,7 +387,7 @@ func (c *ZkClient) ListEphemeralInOrder(path string) (<-chan struct{}, []string,
 		}
 		sort.Strings(nodes)
 		for _, node := range nodes {
-			paths = append(paths, models.EncodePath(path, node))
+			paths = append(paths, (path + "/" + node))
 		}
 		signal = make(chan struct{})
 		go func() {

@@ -28,8 +28,6 @@ type Proxy struct {
 	xauth string
 	model *models.Proxy
 
-	jodis *Jodis
-
 	init, exit struct {
 		C chan struct{}
 	}
@@ -38,6 +36,7 @@ type Proxy struct {
 
 	lproxy net.Listener
 	ladmin net.Listener
+	xjodis *Jodis
 
 	config *Config
 	router *router.Router
@@ -108,6 +107,14 @@ func (s *Proxy) setup() error {
 		s.model.AdminAddr = x
 	}
 
+	if s.config.JodisType != "" {
+		c, err := models.NewClient(s.config.JodisType, s.config.JodisAddr, (time.Second * time.Duration(s.config.JodisTimeout)))
+		if err != nil {
+			return err
+		}
+		s.xjodis = NewJodis(c, s.model)
+	}
+
 	return nil
 }
 
@@ -122,10 +129,6 @@ func (s *Proxy) Start() error {
 	}
 	s.online = true
 	close(s.init.C)
-
-	if s.jodis == nil && s.config.JodisAddr != "" {
-		s.jodis = NewJodis(s.config.JodisAddr, s.config.JodisTimeout, s.model)
-	}
 	return nil
 }
 
@@ -138,8 +141,8 @@ func (s *Proxy) Close() error {
 	s.closed = true
 	close(s.exit.C)
 
-	if s.jodis != nil {
-		s.jodis.Close()
+	if s.xjodis != nil {
+		s.xjodis.Close()
 	}
 	if s.ladmin != nil {
 		s.ladmin.Close()
@@ -280,9 +283,8 @@ func (s *Proxy) serveProxy() {
 	if seconds := s.config.BackendPingPeriod; seconds > 0 {
 		go s.keepAlive(seconds)
 	}
-
-	if s.jodis != nil {
-		go s.jodis.Run()
+	if s.xjodis != nil {
+		s.xjodis.Start()
 	}
 
 	select {

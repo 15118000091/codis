@@ -41,12 +41,8 @@ func NewClient(coordinator string, addrlist string, timeout time.Duration) (Clie
 	return nil, errors.Trace(ErrUnknownCoordinator)
 }
 
-func EncodePath(elem ...string) string {
+func JoinPath(elem ...string) string {
 	return filepath.ToSlash(filepath.Join(elem...))
-}
-
-func DecodePath(path string) string {
-	return filepath.FromSlash(path)
 }
 
 type Store struct {
@@ -57,7 +53,7 @@ type Store struct {
 func NewStore(client Client, name string) *Store {
 	return &Store{
 		client: client,
-		prefix: EncodePath("/codis3", name),
+		prefix: JoinPath("/codis3", name),
 	}
 }
 
@@ -66,35 +62,35 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) LockPath() string {
-	return EncodePath(s.prefix, "topom")
+	return JoinPath(s.prefix, "topom")
 }
 
 func (s *Store) SlotPath(sid int) string {
-	return EncodePath(s.prefix, "slots", fmt.Sprintf("slot-%04d", sid))
+	return JoinPath(s.prefix, "slots", fmt.Sprintf("slot-%04d", sid))
 }
 
 func (s *Store) GroupBase() string {
-	return EncodePath(s.prefix, "group")
+	return JoinPath(s.prefix, "group")
 }
 
 func (s *Store) GroupPath(gid int) string {
-	return EncodePath(s.prefix, "group", fmt.Sprintf("group-%04d", gid))
+	return JoinPath(s.prefix, "group", fmt.Sprintf("group-%04d", gid))
 }
 
 func (s *Store) ProxyBase() string {
-	return EncodePath(s.prefix, "proxy")
+	return JoinPath(s.prefix, "proxy")
 }
 
 func (s *Store) ProxyPath(token string) string {
-	return EncodePath(s.prefix, "proxy", fmt.Sprintf("proxy-%s", token))
+	return JoinPath(s.prefix, "proxy", fmt.Sprintf("proxy-%s", token))
 }
 
 func (s *Store) TopomClusterBase() string {
-	return EncodePath(s.prefix, "topom-cluster")
+	return JoinPath(s.prefix, "topom-cluster")
 }
 
 func (s *Store) TopomClusterPath(name string) string {
-	return EncodePath(s.prefix, "topom-cluster", name)
+	return JoinPath(s.prefix, "topom-cluster", name)
 }
 
 func (s *Store) Acquire(topom *Topom) error {
@@ -244,7 +240,7 @@ func (s *Store) WatchTopomClusterLeader() (<-chan struct{}, string, error) {
 	}
 	var leader string
 	if len(paths) != 0 {
-		_, leader = filepath.Split(DecodePath(paths[0]))
+		_, leader = filepath.Split(filepath.FromSlash(paths[0]))
 	}
 	return w, leader, nil
 }
