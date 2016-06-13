@@ -71,15 +71,14 @@ var (
 	ErrInvalidSlotId = errors.New("use of invalid slot id")
 )
 
-func (s *Router) FillSlot(i int, addr, from string, locked bool) error {
+func (s *Router) FillSlot(idx int, addr, from string, locked bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
 		return ErrClosedRouter
 	}
-	if i >= 0 && i < len(s.slots) {
-		s.fillSlot(i, addr, from, locked)
-		return nil
+	if idx >= 0 && idx < len(s.slots) {
+		return s.fillSlot(idx, addr, from, locked)
 	} else {
 		return ErrInvalidSlotId
 	}
@@ -119,8 +118,8 @@ func (s *Router) putBackendConn(bc *SharedBackendConn) {
 	}
 }
 
-func (s *Router) resetSlot(i int) {
-	slot := s.slots[i]
+func (s *Router) resetSlot(idx int) {
+	slot := s.slots[idx]
 	slot.blockAndWait()
 
 	s.putBackendConn(slot.backend.bc)
@@ -130,8 +129,8 @@ func (s *Router) resetSlot(i int) {
 	slot.unblock()
 }
 
-func (s *Router) fillSlot(i int, addr, from string, locked bool) {
-	slot := s.slots[i]
+func (s *Router) fillSlot(idx int, addr, from string, locked bool) error {
+	slot := s.slots[idx]
 	slot.blockAndWait()
 
 	s.putBackendConn(slot.backend.bc)
@@ -160,9 +159,10 @@ func (s *Router) fillSlot(i int, addr, from string, locked bool) {
 
 	if slot.migrate.bc != nil {
 		log.Warnf("fill slot %04d, backend.addr = %s, migrate.from = %s, locked = %t",
-			i, slot.backend.addr, slot.migrate.from, locked)
+			idx, slot.backend.addr, slot.migrate.from, locked)
 	} else {
 		log.Warnf("fill slot %04d, backend.addr = %s, locked = %t",
-			i, slot.backend.addr, locked)
+			idx, slot.backend.addr, locked)
 	}
+	return nil
 }
