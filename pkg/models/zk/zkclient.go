@@ -156,7 +156,7 @@ func (c *Client) mkdir(conn *zk.Conn, path string) error {
 		return err
 	}
 	_, err := conn.Create(path, []byte{}, 0, zk.WorldACL(zk.PermAll))
-	if err != nil {
+	if err != nil && errors.NotEqual(err, zk.ErrNodeExists) {
 		return errors.Trace(err)
 	}
 	return nil
@@ -331,7 +331,7 @@ func (c *Client) List(path string, must bool) ([]string, error) {
 			return errors.Trace(err)
 		}
 		for _, node := range nodes {
-			paths = append(paths, (path + "/" + node))
+			paths = append(paths, filepath.Join(path, node))
 		}
 		return nil
 	})
@@ -363,7 +363,7 @@ func (c *Client) CreateEphemeralInOrder(path string, data []byte) (<-chan struct
 		if err != nil {
 			return err
 		}
-		signal, node = w, p
+		signal, node = w, filepath.Join(path, p)
 		return nil
 	})
 	if err != nil {
@@ -393,7 +393,7 @@ func (c *Client) ListEphemeralInOrder(path string) (<-chan struct{}, []string, e
 		}
 		sort.Strings(nodes)
 		for _, node := range nodes {
-			paths = append(paths, (path + "/" + node))
+			paths = append(paths, filepath.Join(path, node))
 		}
 		signal = make(chan struct{})
 		go func() {
