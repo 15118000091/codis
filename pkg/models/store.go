@@ -6,6 +6,9 @@ package models
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
+
+	"github.com/CodisLabs/codis/pkg/utils/errors"
 )
 
 func JoinPath(elem ...string) string {
@@ -206,4 +209,11 @@ func (s *Store) ElectTopomClusterEphemeralLeader() (<-chan struct{}, string, err
 		leader = paths[0]
 	}
 	return w, leader, nil
+}
+
+func ValidProductName(name string) error {
+	if regexp.MustCompile(`^\w[\w\.\-]*$`).MatchString(name) {
+		return nil
+	}
+	return errors.Errorf("bad product name = %s", name)
 }

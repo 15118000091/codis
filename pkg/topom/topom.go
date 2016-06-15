@@ -17,6 +17,7 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
+	"github.com/CodisLabs/codis/pkg/utils/math2"
 	"github.com/CodisLabs/codis/pkg/utils/rpc"
 	"github.com/CodisLabs/codis/pkg/utils/sync2/atomic2"
 )
@@ -66,8 +67,8 @@ type Topom struct {
 var ErrClosedTopom = errors.New("use of closed topom")
 
 func New(client models.Client, config *Config) (*Topom, error) {
-	if !utils.IsValidProduct(config.ProductName) {
-		return nil, errors.Errorf("invalid product name = %s", config.ProductName)
+	if err := models.ValidProductName(config.ProductName); err != nil {
+		return nil, err
 	}
 	s := &Topom{config: config, store: models.NewStore(client, config.ProductName)}
 	s.token = rpc.NewToken()
@@ -322,8 +323,7 @@ func (s *Topom) GetSlotActionInterval() int {
 }
 
 func (s *Topom) SetSlotActionInterval(us int) {
-	us = utils.MaxInt(us, 0)
-	us = utils.MinInt(us, 1000*1000)
+	us = math2.MinMaxInt(us, 0, 1000*1000)
 	s.action.interval.Set(int64(us))
 	log.Warnf("set action interval = %d", us)
 }

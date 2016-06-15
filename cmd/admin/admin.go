@@ -67,8 +67,8 @@ func (t *cmdAdmin) newTopomClient(d map[string]interface{}) models.Client {
 }
 
 func (t *cmdAdmin) newTopomStore(d map[string]interface{}) *models.Store {
-	if !utils.IsValidProduct(t.product) {
-		log.Panicf("invalid product = %s", t.product)
+	if err := models.ValidProductName(t.product); err != nil {
+		log.PanicErrorf(err, "invalid product name")
 	}
 	client := t.newTopomClient(d)
 	return models.NewStore(client, t.product)

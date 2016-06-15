@@ -5,7 +5,6 @@ package utils
 
 import (
 	"net"
-	"regexp"
 	"syscall"
 	"time"
 
@@ -22,38 +21,6 @@ func GetCPUUsage() (time.Duration, error) {
 		return 0, errors.Trace(err)
 	}
 	return time.Duration(usage.Utime.Nano() + usage.Stime.Nano()), nil
-}
-
-func MaxInt(a, b int) int {
-	if a > b {
-		return a
-	} else {
-		return b
-	}
-}
-
-func MinInt(a, b int) int {
-	if a < b {
-		return a
-	} else {
-		return b
-	}
-}
-
-func MaxDuration(a, b time.Duration) time.Duration {
-	if a > b {
-		return a
-	} else {
-		return b
-	}
-}
-
-func MinDuration(a, b time.Duration) time.Duration {
-	if a < b {
-		return a
-	} else {
-		return b
-	}
 }
 
 func isZeroIPAddr(addr *net.TCPAddr) bool {
@@ -107,8 +74,4 @@ func ResolveAddr(network string, locAddr, hostbndAddr string) (string, error) {
 		return resolveAddr(network, locAddr, true)
 	}
 	return resolveAddr(network, hostbndAddr, false)
-}
-
-func IsValidProduct(name string) bool {
-	return regexp.MustCompile(`^\w[\w\.\-]*$`).MatchString(name)
 }

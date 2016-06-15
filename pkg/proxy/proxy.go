@@ -18,6 +18,7 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
+	"github.com/CodisLabs/codis/pkg/utils/math2"
 	"github.com/CodisLabs/codis/pkg/utils/rpc"
 )
 
@@ -45,8 +46,8 @@ type Proxy struct {
 var ErrClosedProxy = errors.New("use of closed proxy")
 
 func New(config *Config) (*Proxy, error) {
-	if !utils.IsValidProduct(config.ProductName) {
-		return nil, errors.Errorf("invalid product name = %s", config.ProductName)
+	if err := models.ValidProductName(config.ProductName); err != nil {
+		return nil, err
 	}
 	s := &Proxy{config: config}
 	s.token = rpc.NewToken()
@@ -107,8 +108,8 @@ func (s *Proxy) setup() error {
 		s.model.AdminAddr = x
 	}
 
-	if s.config.JodisType != "" {
-		c, err := models.NewClient(s.config.JodisType, s.config.JodisAddr, (time.Second * time.Duration(s.config.JodisTimeout)))
+	if s.config.JodisName != "" {
+		c, err := models.NewClient(s.config.JodisName, s.config.JodisAddr, (time.Second * time.Duration(s.config.JodisTimeout)))
 		if err != nil {
 			return err
 		}
@@ -256,7 +257,7 @@ func (s *Proxy) serveProxy() {
 
 	ch := make(chan net.Conn, 4096)
 
-	var nn = utils.MinInt(8, utils.MaxInt(4, runtime.GOMAXPROCS(0)))
+	var nn = math2.MinMaxInt(runtime.GOMAXPROCS(0), 4, 12)
 	for i := 0; i < nn; i++ {
 		go func() {
 			for c := range ch {
@@ -318,16 +319,14 @@ func (s *Proxy) newSession(c net.Conn) {
 }
 
 func (s *Proxy) acceptConn(l net.Listener) (net.Conn, error) {
-	var delay time.Duration
+	var delay int
 	for {
 		c, err := l.Accept()
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Temporary() {
 				log.WarnErrorf(err, "[%p] proxy accept new connection failed", s)
-				delay = delay * 2
-				delay = utils.MaxDuration(delay, time.Millisecond*10)
-				delay = utils.MinDuration(delay, time.Millisecond*500)
-				time.Sleep(delay)
+				delay = math2.MinMaxInt(delay*2, 10, 500)
+				time.Sleep(time.Duration(delay) * time.Millisecond)
 				continue
 			}
 		}

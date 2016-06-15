@@ -31,7 +31,7 @@ proto_type = "tcp4"
 proxy_addr = "0.0.0.0:19000"
 
 # Set jodis address & session timeout, only accept "zookeeper" & "etcd".
-jodis_type = ""
+jodis_name = ""
 jodis_addr = ""
 jodis_timeout = 10
 
@@ -60,7 +60,7 @@ type Config struct {
 	HostProxy string `toml:"-" json:"-"`
 	HostAdmin string `toml:"-" json:"-"`
 
-	JodisType    string `toml:"jodis_type" json:"jodis_type"`
+	JodisName    string `toml:"jodis_name" json:"jodis_name"`
 	JodisAddr    string `toml:"jodis_addr" json:"jodis_addr"`
 	JodisTimeout int    `toml:"jodis_timeout" json:"jodis_timeout"`
 
