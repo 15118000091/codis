@@ -6,6 +6,7 @@ package proxy
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -42,9 +43,9 @@ func NewJodis(c models.Client, p *models.Proxy) *Jodis {
 	}
 	var path string
 	if models.IsZkClient(c) {
-		path = models.JoinPath("/zk/codis", fmt.Sprintf("db_%s", p.ProductName), "proxy", p.Token)
+		path = filepath.Join("/zk/codis", fmt.Sprintf("db_%s", p.ProductName), "proxy", p.Token)
 	} else {
-		path = models.JoinPath("/jodis", p.ProductName, p.Token)
+		path = filepath.Join("/jodis", p.ProductName, p.Token)
 	}
 	return &Jodis{path: path, data: b, client: c}
 }

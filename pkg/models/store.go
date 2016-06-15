@@ -9,10 +9,13 @@ import (
 	"regexp"
 
 	"github.com/CodisLabs/codis/pkg/utils/errors"
+	"github.com/CodisLabs/codis/pkg/utils/log"
 )
 
-func JoinPath(elem ...string) string {
-	return filepath.ToSlash(filepath.Join(elem...))
+func init() {
+	if filepath.Separator != '/' {
+		log.Panicf("bad Separator = '%c', shoud be '/'", filepath.Separator)
+	}
 }
 
 type Store struct {
@@ -23,7 +26,7 @@ type Store struct {
 func NewStore(client Client, name string) *Store {
 	return &Store{
 		client: client,
-		prefix: JoinPath("/codis3", name),
+		prefix: filepath.Join("/codis3", name),
 	}
 }
 
@@ -32,35 +35,35 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) LockPath() string {
-	return JoinPath(s.prefix, "topom")
+	return filepath.Join(s.prefix, "topom")
 }
 
 func (s *Store) SlotPath(sid int) string {
-	return JoinPath(s.prefix, "slots", fmt.Sprintf("slot-%04d", sid))
+	return filepath.Join(s.prefix, "slots", fmt.Sprintf("slot-%04d", sid))
 }
 
 func (s *Store) GroupBase() string {
-	return JoinPath(s.prefix, "group")
+	return filepath.Join(s.prefix, "group")
 }
 
 func (s *Store) GroupPath(gid int) string {
-	return JoinPath(s.prefix, "group", fmt.Sprintf("group-%04d", gid))
+	return filepath.Join(s.prefix, "group", fmt.Sprintf("group-%04d", gid))
 }
 
 func (s *Store) ProxyBase() string {
-	return JoinPath(s.prefix, "proxy")
+	return filepath.Join(s.prefix, "proxy")
 }
 
 func (s *Store) ProxyPath(token string) string {
-	return JoinPath(s.prefix, "proxy", fmt.Sprintf("proxy-%s", token))
+	return filepath.Join(s.prefix, "proxy", fmt.Sprintf("proxy-%s", token))
 }
 
 func (s *Store) TopomClusterBase() string {
-	return JoinPath(s.prefix, "topom-cluster")
+	return filepath.Join(s.prefix, "topom-cluster")
 }
 
 func (s *Store) TopomClusterPath(name string) string {
-	return JoinPath(s.prefix, "topom-cluster", name)
+	return filepath.Join(s.prefix, "topom-cluster", name)
 }
 
 func (s *Store) Acquire(topom *Topom) error {
