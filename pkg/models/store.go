@@ -180,13 +180,12 @@ func (s *Store) DeleteProxy(token string) error {
 	return s.client.Delete(s.ProxyPath(token))
 }
 
-func (s *Store) CreateTopomClusterEphemeral(topom *Topom) (<-chan struct{}, error) {
-	w, _, err := s.client.CreateEphemeralInOrder(s.TopomClusterBase(), topom.Encode())
-	return w, err
+func (s *Store) CreateTopomClusterEphemeral(topom *Topom) (<-chan struct{}, string, error) {
+	return s.client.CreateEphemeralInOrder(s.TopomClusterBase(), topom.Encode())
 }
 
-func (s *Store) LoadTopomClusterEphemeral(name string, must bool) (*Topom, error) {
-	b, err := s.client.Read(s.TopomClusterPath(name), must)
+func (s *Store) LoadTopomClusterEphemeral(path string, must bool) (*Topom, error) {
+	b, err := s.client.Read(path, must)
 	if err != nil || b == nil {
 		return nil, err
 	}
@@ -197,14 +196,14 @@ func (s *Store) LoadTopomClusterEphemeral(name string, must bool) (*Topom, error
 	return t, nil
 }
 
-func (s *Store) WatchTopomClusterLeader() (<-chan struct{}, string, error) {
+func (s *Store) ElectTopomClusterEphemeralLeader() (<-chan struct{}, string, error) {
 	w, paths, err := s.client.ListEphemeralInOrder(s.TopomClusterBase())
 	if err != nil {
 		return nil, "", err
 	}
 	var leader string
 	if len(paths) != 0 {
-		_, leader = filepath.Split(filepath.FromSlash(paths[0]))
+		leader = paths[0]
 	}
 	return w, leader, nil
 }
