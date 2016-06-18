@@ -165,7 +165,7 @@ func AutoGOMAXPROCS(min, max int) {
 		var nn = ncpu
 		switch {
 		case more != 0:
-			nn = ncpu + ((max - ncpu + 2) / 3)
+			nn = ncpu + ((max - ncpu + 3) / 4)
 		case less == len(usage):
 			nn = ncpu - 1
 		}
