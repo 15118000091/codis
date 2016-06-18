@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,17 +15,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/docopt/docopt-go"
-
 	"github.com/CodisLabs/codis/pkg/proxy"
 	"github.com/CodisLabs/codis/pkg/utils"
 	"github.com/CodisLabs/codis/pkg/utils/log"
+	"github.com/docopt/docopt-go"
 )
 
 func main() {
 	const usage = `
 Usage:
-	codis-proxy [--ncpu=N [--maxcpu=MAX]] [--config=CONF] [--log=FILE] [--log-level=LEVEL] [--host-admin=ADDR] [--host-proxy=ADDR] [--ulimit=NLIMIT]
+	codis-proxy [--ncpu=N [--max-ncpu=MAX]] [--config=CONF] [--log=FILE] [--log-level=LEVEL] [--host-admin=ADDR] [--host-proxy=ADDR] [--ulimit=NLIMIT]
 	codis-proxy  --default-config
 	codis-proxy  --version
 
@@ -80,35 +80,22 @@ Options:
 		}
 	}
 
+	var ncpu int
 	if n, ok := utils.ArgumentInteger(d, "--ncpu"); ok {
-		runtime.GOMAXPROCS(n)
+		ncpu = n
 	} else {
-		runtime.GOMAXPROCS(runtime.NumCPU())
+		ncpu = runtime.NumCPU()
 	}
+	runtime.GOMAXPROCS(ncpu)
 
-	mincpu := runtime.GOMAXPROCS(0)
-	maxcpu, _ := utils.ArgumentInteger(d, "--maxcpu")
-	switch {
-	case mincpu <= maxcpu:
-		log.Warnf("set ncpu = %d, maxcpu = %d", mincpu, maxcpu)
-	default:
-		log.Warnf("set ncpu = %d", mincpu)
+	var maxncpu int
+	if n, ok := utils.ArgumentInteger(d, "--max-ncpu"); ok {
+		maxncpu = n
 	}
-	if mincpu < maxcpu {
-		go func() {
-			for {
-				update, err := SetMaxCPU(mincpu, maxcpu, time.Second)
-				switch {
-				case err != nil:
-					log.WarnErrorf(err, "set max procs failed")
-					time.Sleep(time.Second * 5)
-				case !update:
-					time.Sleep(time.Second * 3)
-				default:
-					time.Sleep(time.Millisecond * 500)
-				}
-			}
-		}()
+	log.Warnf("set ncpu = %d, max-ncpu = %d", ncpu, maxncpu)
+
+	if ncpu < maxncpu {
+		go AutoGOMAXPROCS(ncpu, maxncpu)
 	}
 
 	config := proxy.NewDefaultConfig()
@@ -155,37 +142,43 @@ Options:
 	log.Warnf("[%p] proxy exiting ...", s)
 }
 
-func SetMaxCPU(min, max int, interval time.Duration) (bool, error) {
-	var now = time.Now()
-
-	b, err := utils.GetCPUUsage()
-	if err != nil {
-		return false, err
-	}
-
-	time.Sleep(interval)
-
-	e, err := utils.GetCPUUsage()
-	if err != nil {
-		return false, err
-	}
-
-	var usage = e - b
-
-	current := runtime.GOMAXPROCS(0)
-	percent := float64(usage) / float64(time.Since(now)) / float64(current) * 100
-
-	switch {
-	case percent < 55 && current > min:
-		runtime.GOMAXPROCS(current - 1)
-		log.Warnf("ncpu = %d, %3.2f%% usage = %s, -> %d", current, percent, usage, current-1)
-		return true, nil
-	case percent > 85 && current < max:
-		runtime.GOMAXPROCS(current + 1)
-		log.Warnf("ncpu = %d, %3.2f%% usage = %s, -> %d", current, percent, usage, current+1)
-		return true, nil
-	default:
-		log.Infof("ncpu = %d, %3.2f%% usage = %s", current, percent, usage)
-		return false, nil
+func AutoGOMAXPROCS(min, max int) {
+	for {
+		var ncpu = runtime.GOMAXPROCS(0)
+		var less, more int
+		var usage [10]float64
+		for i := 0; i < len(usage) && more == 0; i++ {
+			u, err := utils.CPUUsage(time.Second)
+			if err != nil {
+				log.WarnErrorf(err, "get cpu usage failed")
+				time.Sleep(time.Second * 30)
+				continue
+			}
+			switch {
+			case u < 0.55 && ncpu > min:
+				less++
+			case u > 0.85 && ncpu < max:
+				more++
+			}
+			usage[i] = u
+		}
+		var nn = ncpu
+		switch {
+		case more != 0:
+			nn = ncpu + ((max - ncpu + 2) / 3)
+		case less == len(usage):
+			nn = ncpu - 1
+		}
+		if nn != ncpu {
+			runtime.GOMAXPROCS(nn)
+			var b bytes.Buffer
+			for i, u := range usage {
+				if i != 0 {
+					fmt.Fprintf(&b, ", ")
+				}
+				fmt.Fprintf(&b, "%.3f", u)
+			}
+			log.Warnf("ncpu = %d -> %d, usage = [%s]", ncpu, nn, b.Bytes())
+		}
 	}
 }
