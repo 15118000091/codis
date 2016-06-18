@@ -18,7 +18,7 @@ type Router struct {
 	auth string
 	pool map[string]*SharedBackendConn
 
-	slots [models.MaxSlotNum]*Slot
+	slots [models.MaxSlotNum]Slot
 
 	closed bool
 }
@@ -33,7 +33,7 @@ func NewWithAuth(auth string) *Router {
 		pool: make(map[string]*SharedBackendConn),
 	}
 	for i := 0; i < len(s.slots); i++ {
-		s.slots[i] = &Slot{id: i}
+		s.slots[i].id = i
 	}
 	return s
 }
@@ -55,7 +55,8 @@ func (s *Router) GetSlots() []*models.Slot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	slots := make([]*models.Slot, 0, len(s.slots))
-	for i, slot := range s.slots {
+	for i := 0; i < len(s.slots); i++ {
+		slot := &s.slots[i]
 		slots = append(slots, &models.Slot{
 			Id:          i,
 			BackendAddr: slot.backend.addr,
@@ -98,7 +99,7 @@ func (s *Router) KeepAlive() error {
 
 func (s *Router) Dispatch(r *Request) error {
 	hkey := getHashKey(r.Multi, r.OpStr)
-	slot := s.slots[hashSlot(hkey)]
+	slot := &s.slots[hashSlot(hkey)]
 	return slot.forward(r, hkey)
 }
 
@@ -119,7 +120,7 @@ func (s *Router) putBackendConn(bc *SharedBackendConn) {
 }
 
 func (s *Router) resetSlot(idx int) {
-	slot := s.slots[idx]
+	slot := &s.slots[idx]
 	slot.blockAndWait()
 
 	s.putBackendConn(slot.backend.bc)
@@ -130,7 +131,7 @@ func (s *Router) resetSlot(idx int) {
 }
 
 func (s *Router) fillSlot(idx int, addr, from string, locked bool) error {
-	slot := s.slots[idx]
+	slot := &s.slots[idx]
 	slot.blockAndWait()
 
 	s.putBackendConn(slot.backend.bc)
