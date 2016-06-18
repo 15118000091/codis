@@ -108,7 +108,7 @@ func (bc *BackendConn) loopWriter(round int) (err error) {
 			Conn: c,
 
 			MaxBuffered:   256,
-			MaxIntervalMs: 300,
+			MaxIntervalUs: 1000,
 		}
 
 		for ok {
@@ -229,7 +229,7 @@ type FlushPolicy struct {
 	Conn *redis.Conn
 
 	MaxBuffered   int
-	MaxIntervalMs int64
+	MaxIntervalUs int64
 
 	nbuffered int
 }
@@ -239,7 +239,7 @@ func (p *FlushPolicy) NeedFlush() bool {
 		if p.nbuffered > p.MaxBuffered {
 			return true
 		}
-		if d := utils.Microseconds() - p.Conn.LastWriteMs; d > p.MaxIntervalMs {
+		if d := utils.Microseconds() - p.Conn.LastWriteUs; d > p.MaxIntervalUs {
 			return true
 		}
 	}

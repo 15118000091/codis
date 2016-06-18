@@ -142,7 +142,7 @@ func (s *Session) loopWriter(tasks <-chan *Request) (err error) {
 		Conn: s.Conn,
 
 		MaxBuffered:   128,
-		MaxIntervalMs: 300,
+		MaxIntervalUs: 1000,
 	}
 
 	for r := range tasks {
