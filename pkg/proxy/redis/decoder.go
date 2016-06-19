@@ -59,6 +59,8 @@ type Decoder struct {
 	br *Reader
 
 	Err error
+
+	cache []Resp
 }
 
 var ErrFailedDecoder = errors.New("use of failed decoder")
@@ -105,26 +107,34 @@ func DecodeMultiBulkFromBytes(p []byte) ([]*Resp, error) {
 	return NewDecoder(bytes.NewReader(p)).DecodeMultiBulk()
 }
 
+func (d *Decoder) makeResp(t RespType) *Resp {
+	var p = d.cache
+	if len(p) == 0 {
+		p = make([]Resp, 56)
+	}
+	r := &p[0]
+	r.Type = t
+	d.cache = p[1:]
+	return r
+}
+
 func (d *Decoder) decodeResp() (*Resp, error) {
 	b, err := d.br.ReadByte()
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	switch t := RespType(b); t {
+	switch r := d.makeResp(RespType(b)); r.Type {
 	case TypeString, TypeError, TypeInt:
-		r := &Resp{Type: t}
 		r.Value, err = d.decodeTextBytes()
 		return r, err
 	case TypeBulkBytes:
-		r := &Resp{Type: t}
 		r.Value, err = d.decodeBulkBytes()
 		return r, err
 	case TypeArray:
-		r := &Resp{Type: t}
 		r.Array, err = d.decodeArray()
 		return r, err
 	default:
-		return nil, errors.Errorf("bad resp type %s", t)
+		return nil, errors.Errorf("bad resp type %s", r.Type)
 	}
 }
 
@@ -146,12 +156,13 @@ func (d *Decoder) decodeTextBytesUnsafe() ([]byte, error) {
 		if err != bufio.ErrBufferFull {
 			return nil, errors.Trace(err)
 		}
-		prefix := append(make([]byte, 0, len(b)+16), b...)
-		s, err := d.br.ReadBytes('\n')
+		pfx := d.br.makeSlice(len(b) + 10)[:len(b)]
+		copy(pfx, b)
+		sfx, err := d.br.ReadBytes('\n')
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		b = append(prefix, s...)
+		b = append(pfx, sfx...)
 	}
 	if n := len(b) - 2; n < 0 || b[n] != '\r' {
 		return nil, errors.Trace(ErrBadRespCRLFEnd)
