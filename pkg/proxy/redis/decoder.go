@@ -56,23 +56,19 @@ func btoi(b []byte) (int64, error) {
 }
 
 type Decoder struct {
-	br *bufio.Reader
+	br *Reader
 
 	Err error
 }
 
 var ErrFailedDecoder = errors.New("use of failed decoder")
 
-func NewDecoder(br *bufio.Reader) *Decoder {
-	return &Decoder{br: br}
+func NewDecoder(r io.Reader) *Decoder {
+	return NewDecoderSize(r, 0)
 }
 
 func NewDecoderSize(r io.Reader, size int) *Decoder {
-	br, ok := r.(*bufio.Reader)
-	if !ok {
-		br = bufio.NewReaderSize(r, size)
-	}
-	return &Decoder{br: br}
+	return &Decoder{br: NewReaderSize(r, size)}
 }
 
 func (d *Decoder) Decode() (*Resp, error) {
@@ -97,16 +93,16 @@ func (d *Decoder) DecodeMultiBulk() ([]*Resp, error) {
 	return a, err
 }
 
-func Decode(br *bufio.Reader) (*Resp, error) {
-	return NewDecoder(br).Decode()
+func Decode(r io.Reader) (*Resp, error) {
+	return NewDecoder(r).Decode()
 }
 
 func DecodeFromBytes(p []byte) (*Resp, error) {
-	return Decode(bufio.NewReader(bytes.NewReader(p)))
+	return NewDecoder(bytes.NewReader(p)).Decode()
 }
 
 func DecodeMultiBulkFromBytes(p []byte) ([]*Resp, error) {
-	return NewDecoder(bufio.NewReader(bytes.NewReader(p))).DecodeMultiBulk()
+	return NewDecoder(bytes.NewReader(p)).DecodeMultiBulk()
 }
 
 func (d *Decoder) decodeResp() (*Resp, error) {
@@ -226,10 +222,7 @@ func (d *Decoder) decodeSingleLineMultiBulk() ([]*Resp, error) {
 	for l, r := 0, 0; r <= len(b); r++ {
 		if r == len(b) || b[r] == ' ' {
 			if l < r {
-				multi = append(multi, &Resp{
-					Type:  TypeBulkBytes,
-					Value: b[l:r],
-				})
+				multi = append(multi, NewBulkBytes(b[l:r]))
 			}
 			l = r + 1
 		}

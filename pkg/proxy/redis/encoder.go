@@ -4,7 +4,6 @@
 package redis
 
 import (
-	"bufio"
 	"bytes"
 	"io"
 	"strconv"
@@ -51,23 +50,19 @@ func itob(i int64) []byte {
 }
 
 type Encoder struct {
-	bw *bufio.Writer
+	bw *Writer
 
 	Err error
 }
 
 var ErrFailedEncoder = errors.New("use of failed redis encoder")
 
-func NewEncoder(bw *bufio.Writer) *Encoder {
-	return &Encoder{bw: bw}
+func NewEncoder(w io.Writer) *Encoder {
+	return NewEncoderSize(w, 0)
 }
 
 func NewEncoderSize(w io.Writer, size int) *Encoder {
-	bw, ok := w.(*bufio.Writer)
-	if !ok {
-		bw = bufio.NewWriterSize(w, size)
-	}
-	return &Encoder{bw: bw}
+	return &Encoder{bw: NewWriterSize(w, size)}
 }
 
 func (e *Encoder) Encode(r *Resp, flush bool) error {
@@ -104,13 +99,13 @@ func (e *Encoder) Flush() error {
 	return e.Err
 }
 
-func Encode(bw *bufio.Writer, r *Resp, flush bool) error {
-	return NewEncoder(bw).Encode(r, flush)
+func Encode(w io.Writer, r *Resp, flush bool) error {
+	return NewEncoder(w).Encode(r, flush)
 }
 
 func EncodeToBytes(r *Resp) ([]byte, error) {
 	var b = &bytes.Buffer{}
-	err := Encode(bufio.NewWriter(b), r, true)
+	err := Encode(b, r, true)
 	return b.Bytes(), err
 }
 
