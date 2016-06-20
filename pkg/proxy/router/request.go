@@ -36,22 +36,10 @@ type Request struct {
 	slot   *sync.WaitGroup
 }
 
-func NewRequest(opstr string, multi []*redis.Resp, broken *atomic2.Bool) *Request {
+func NewRequest() *Request {
 	r := &Request{}
-	r.OpStr = opstr
-	r.Multi = multi
 	r.Batch = &r.batch
-	r.Broken = broken
 	return r
-}
-
-func (r *Request) SubRequest(opstr string, multi []*redis.Resp) *Request {
-	x := &Request{}
-	x.OpStr = opstr
-	x.Multi = multi
-	x.Batch = r.Batch
-	x.Broken = r.Broken
-	return x
 }
 
 func (r *Request) Break() {

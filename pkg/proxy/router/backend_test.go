@@ -26,7 +26,8 @@ func TestBackend(t *testing.T) {
 		defer close(reqc)
 		var multi = []*redis.Resp{redis.NewBulkBytes(make([]byte, 4096))}
 		for i := 0; i < cap(reqc); i++ {
-			r := NewRequest("", multi, nil)
+			r := NewRequest()
+			r.Multi = multi
 			bc.PushBack(r)
 			reqc <- r
 		}

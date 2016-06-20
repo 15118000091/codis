@@ -60,38 +60,33 @@ func (r *Resp) IsArray() bool {
 }
 
 func NewString(value []byte) *Resp {
-	return &Resp{
-		Type:  TypeString,
-		Value: value,
-	}
+	r := &Resp{Type: TypeString}
+	r.Value = value
+	return r
 }
 
 func NewError(value []byte) *Resp {
-	return &Resp{
-		Type:  TypeError,
-		Value: value,
-	}
+	r := &Resp{Type: TypeError}
+	r.Value = value
+	return r
 }
 
 func NewInt(value []byte) *Resp {
-	return &Resp{
-		Type:  TypeInt,
-		Value: value,
-	}
+	r := &Resp{Type: TypeInt}
+	r.Value = value
+	return r
 }
 
 func NewBulkBytes(value []byte) *Resp {
-	return &Resp{
-		Type:  TypeBulkBytes,
-		Value: value,
-	}
+	r := &Resp{Type: TypeBulkBytes}
+	r.Value = value
+	return r
 }
 
 func NewArray(array []*Resp) *Resp {
-	return &Resp{
-		Type:  TypeArray,
-		Array: array,
-	}
+	r := &Resp{Type: TypeArray}
+	r.Array = array
+	return r
 }
 
 func (r *Resp) Append(x *Resp) {

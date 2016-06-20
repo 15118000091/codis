@@ -63,9 +63,13 @@ func (bc *BackendConn) KeepAlive() bool {
 		return false
 	}
 
-	bc.PushBack(NewRequest("PING", []*redis.Resp{
-		redis.NewBulkBytes([]byte("PING")),
-	}, nil))
+	m := NewRequest()
+	m.OpStr = "PING"
+	m.Multi = []*redis.Resp{
+		redis.NewBulkBytes([]byte(m.OpStr)),
+	}
+
+	bc.PushBack(m)
 
 	return true
 }

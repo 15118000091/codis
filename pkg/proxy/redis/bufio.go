@@ -17,7 +17,7 @@ type Reader struct {
 	wpos int
 	last int
 
-	cache []byte
+	alloc []byte
 }
 
 func NewReaderSize(rd io.Reader, size int) *Reader {
@@ -29,12 +29,12 @@ func (b *Reader) makeSlice(n int) []byte {
 	if n >= 512 {
 		return make([]byte, n)
 	}
-	var p = b.cache
+	var p = b.alloc
 	if len(p) < n {
 		p = make([]byte, 8192)
 	}
 	var s = p[:n:n]
-	b.cache = p[n:]
+	b.alloc = p[n:]
 	return s
 }
 

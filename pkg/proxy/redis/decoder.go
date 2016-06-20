@@ -60,7 +60,7 @@ type Decoder struct {
 
 	Err error
 
-	cache []Resp
+	alloc []Resp
 }
 
 var ErrFailedDecoder = errors.New("use of failed decoder")
@@ -107,12 +107,12 @@ func DecodeMultiBulkFromBytes(p []byte) ([]*Resp, error) {
 	return NewDecoder(bytes.NewReader(p)).DecodeMultiBulk()
 }
 
-func (d *Decoder) allocResp(t RespType) *Resp {
-	var p = d.cache
+func (d *Decoder) makeResp(t RespType) *Resp {
+	var p = d.alloc
 	if len(p) == 0 {
-		p = make([]Resp, 64)
+		p = make([]Resp, 73)
 	}
-	d.cache = p[1:]
+	d.alloc = p[1:]
 	r := &p[0]
 	r.Type = t
 	return r
@@ -123,7 +123,7 @@ func (d *Decoder) decodeResp() (*Resp, error) {
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	switch r := d.allocResp(RespType(b)); r.Type {
+	switch r := d.makeResp(RespType(b)); r.Type {
 	case TypeString, TypeError, TypeInt:
 		r.Value, err = d.decodeTextBytes()
 		return r, err

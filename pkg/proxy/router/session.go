@@ -37,6 +37,8 @@ type Session struct {
 		total atomic2.Int64
 	}
 	exit sync.Once
+
+	alloc []Request
 }
 
 func (s *Session) String() string {
@@ -103,6 +105,26 @@ func (s *Session) Start(d Dispatcher, maxPipeline int) {
 		<-ch
 		decrSessions()
 	}()
+}
+
+func (s *Session) makeRequest() *Request {
+	var p = s.alloc
+	if len(p) == 0 {
+		p = make([]Request, 68)
+	}
+	s.alloc = p[1:]
+	r := &p[0]
+	r.Batch = &r.batch
+	r.Broken = &s.broken
+	return r
+}
+
+func (s *Session) makeSubRequest(r *Request, opstr string, multi []*redis.Resp) *Request {
+	x := s.makeRequest()
+	x.OpStr = opstr
+	x.Multi = multi
+	x.Batch = r.Batch
+	return x
 }
 
 func (s *Session) loopReader(tasks chan<- *Request, d Dispatcher) (err error) {
@@ -197,8 +219,10 @@ func (s *Session) handleRequest(multi []*redis.Resp, d Dispatcher) (*Request, er
 	s.LastOpUnix = usnow / 1e6
 	s.Ops++
 
-	r := NewRequest(opstr, multi, &s.broken)
+	r := s.makeRequest()
+	r.OpStr = opstr
 	r.Start = usnow
+	r.Multi = multi
 
 	if opstr == "QUIT" {
 		return s.handleQuit(r)
@@ -286,7 +310,7 @@ func (s *Session) handleRequestMGet(r *Request, d Dispatcher) (*Request, error) 
 	}
 	var sub = make([]*Request, nkeys)
 	for i := 0; i < len(sub); i++ {
-		sub[i] = r.SubRequest(r.OpStr, []*redis.Resp{
+		sub[i] = s.makeSubRequest(r, r.OpStr, []*redis.Resp{
 			r.Multi[0],
 			r.Multi[i+1],
 		})
@@ -326,7 +350,7 @@ func (s *Session) handleRequestMSet(r *Request, d Dispatcher) (*Request, error) 
 	}
 	var sub = make([]*Request, nblks/2)
 	for i := 0; i < len(sub); i++ {
-		sub[i] = r.SubRequest(r.OpStr, []*redis.Resp{
+		sub[i] = s.makeSubRequest(r, r.OpStr, []*redis.Resp{
 			r.Multi[0],
 			r.Multi[i*2+1],
 			r.Multi[i*2+2],
@@ -361,7 +385,7 @@ func (s *Session) handleRequestMDel(r *Request, d Dispatcher) (*Request, error) 
 	}
 	var sub = make([]*Request, nkeys)
 	for i := 0; i < len(sub); i++ {
-		sub[i] = r.SubRequest(r.OpStr, []*redis.Resp{
+		sub[i] = s.makeSubRequest(r, r.OpStr, []*redis.Resp{
 			r.Multi[0],
 			r.Multi[i+1],
 		})
