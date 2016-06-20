@@ -15,7 +15,7 @@ import (
 var tmap = make(map[int64][]byte)
 
 func init() {
-	var n = len(itoamap)*2 + 100000
+	var n = len(itoaOffset)*2 + 100000
 	for i := -n; i <= n; i++ {
 		tmap[int64(i)] = []byte(strconv.Itoa(int(i)))
 	}
@@ -27,15 +27,12 @@ func init() {
 	}
 }
 
-func TestItob(t *testing.T) {
-	for i, b := range tmap {
-		assert.Must(string(b) == string(itob(i)))
-	}
-}
-
 func TestItoa(t *testing.T) {
 	for i, b := range tmap {
-		assert.Must(string(b) == itoa(i))
+		assert.Must(itoa(i) == string(b))
+	}
+	for i := int64(minItoa); i <= maxItoa; i++ {
+		assert.Must(itoa(i) == strconv.Itoa(int(i)))
 	}
 }
 

@@ -26,15 +26,16 @@ func NewReaderSize(rd io.Reader, size int) *Reader {
 }
 
 func (b *Reader) makeSlice(n int) []byte {
-	if n >= 128 {
+	if n >= 512 {
 		return make([]byte, n)
 	}
 	var p = b.cache
 	if len(p) < n {
 		p = make([]byte, 8192)
 	}
+	var s = p[:n:n]
 	b.cache = p[n:]
-	return p[:n:n]
+	return s
 }
 
 func (b *Reader) fill() error {
@@ -150,8 +151,9 @@ func (b *Reader) ReadSlice(delim byte) ([]byte, error) {
 }
 
 func (b *Reader) ReadBytes(delim byte) ([]byte, error) {
-	var last []byte
 	var full [][]byte
+	var last []byte
+	var size int
 	for last == nil {
 		f, err := b.ReadSlice(delim)
 		if err != nil {
@@ -164,13 +166,8 @@ func (b *Reader) ReadBytes(delim byte) ([]byte, error) {
 		} else {
 			last = f
 		}
+		size += len(f)
 	}
-	var size int
-	for _, frag := range full {
-		size += len(frag)
-	}
-	size += len(last)
-
 	var n int
 	var s = b.makeSlice(size)
 	for _, frag := range full {

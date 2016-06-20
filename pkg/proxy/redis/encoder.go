@@ -11,42 +11,35 @@ import (
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 )
 
+const (
+	minItoa = -128
+	maxItoa = 1024*128 - 1
+)
+
 var (
-	itoamap []string
-	itobmap [][]byte
+	itoaOffset [maxItoa - minItoa + 1]uint32
+	itoaBuffer string
 )
 
 func init() {
-	itoamap = make([]string, 1024*128+1024)
-	itobmap = make([][]byte, len(itoamap))
-	for i := 0; i < len(itoamap); i++ {
-		itoamap[i] = strconv.Itoa(i - 1024)
-		itobmap[i] = []byte(itoamap[i])
+	var b bytes.Buffer
+	for i := 0; i < len(itoaOffset); i++ {
+		itoaOffset[i] = uint32(b.Len())
+		b.WriteString(strconv.Itoa(i + minItoa))
 	}
-}
-
-func itoxIndex(i int64) int {
-	n := i + 1024
-	if i < n {
-		if n >= 0 && n < int64(len(itoamap)) {
-			return int(n)
-		}
-	}
-	return -1
+	itoaBuffer = b.String()
 }
 
 func itoa(i int64) string {
-	if n := itoxIndex(i); n >= 0 {
-		return itoamap[n]
+	if i >= minItoa && i <= maxItoa {
+		beg := itoaOffset[i-minItoa]
+		if i == maxItoa {
+			return itoaBuffer[beg:]
+		}
+		end := itoaOffset[i-minItoa+1]
+		return itoaBuffer[beg:end]
 	}
 	return strconv.FormatInt(i, 10)
-}
-
-func itob(i int64) []byte {
-	if n := itoxIndex(i); n >= 0 {
-		return itobmap[n]
-	}
-	return []byte(strconv.FormatInt(i, 10))
 }
 
 type Encoder struct {
