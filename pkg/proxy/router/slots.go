@@ -82,8 +82,8 @@ func (s *Slot) prepare(r *Request, key []byte) (*SharedBackendConn, error) {
 			s.id, s.migrate.from, s.backend.addr, key, err)
 		return nil, err
 	} else {
-		r.slot = &s.refs
-		r.slot.Add(1)
+		r.Group = &s.refs
+		r.Group.Add(1)
 		return s.backend.bc, nil
 	}
 }
@@ -93,7 +93,7 @@ func (s *Slot) slotsmgrt(r *Request, key []byte) error {
 		return nil
 	}
 
-	m := NewRequest()
+	m := &Request{}
 	m.OpStr = "SLOTSMGRTTAGONE"
 	m.Multi = []*redis.Resp{
 		redis.NewBulkBytes([]byte(m.OpStr)),

@@ -54,7 +54,9 @@ func (bc *BackendConn) Close() {
 }
 
 func (bc *BackendConn) PushBack(r *Request) {
-	r.Batch.Add(1)
+	if r.Batch != nil {
+		r.Batch.Add(1)
+	}
 	bc.input <- r
 }
 
@@ -63,7 +65,7 @@ func (bc *BackendConn) KeepAlive() bool {
 		return false
 	}
 
-	m := NewRequest()
+	m := &Request{}
 	m.OpStr = "PING"
 	m.Multi = []*redis.Resp{
 		redis.NewBulkBytes([]byte(m.OpStr)),
@@ -116,19 +118,13 @@ func (bc *BackendConn) loopWriter(round int) (err error) {
 		}
 
 		for ok {
-			if !r.IsBroken() {
-				if err := p.EncodeMultiBulk(r.Multi); err != nil {
-					return bc.setResponse(r, nil, err)
-				}
-				if err := p.Flush(len(bc.input) == 0); err != nil {
-					return bc.setResponse(r, nil, err)
-				}
-				tasks <- r
+			if err := p.EncodeMultiBulk(r.Multi); err != nil {
+				return bc.setResponse(r, nil, err)
+			}
+			if err := p.Flush(len(bc.input) == 0); err != nil {
+				return bc.setResponse(r, nil, err)
 			} else {
-				if err := p.Flush(len(bc.input) == 0); err != nil {
-					return bc.setResponse(r, nil, err)
-				}
-				bc.setResponse(r, nil, ErrDiscardedRequest)
+				tasks <- r
 			}
 			r, ok = <-bc.input
 		}
@@ -185,13 +181,12 @@ func (bc *BackendConn) verifyAuth(c *redis.Conn) error {
 
 func (bc *BackendConn) setResponse(r *Request, resp *redis.Resp, err error) error {
 	r.Response.Resp, r.Response.Err = resp, err
-	if err != nil {
-		r.Break()
+	if r.Group != nil {
+		r.Group.Done()
 	}
-	if r.slot != nil {
-		r.slot.Done()
+	if r.Batch != nil {
+		r.Batch.Done()
 	}
-	r.Batch.Done()
 	return err
 }
 

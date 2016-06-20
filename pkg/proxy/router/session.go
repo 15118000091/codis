@@ -26,19 +26,18 @@ type Session struct {
 	CreateUnix int64
 	LastOpUnix int64
 
-	auth       string
-	authorized bool
-
-	quit   bool
-	broken atomic2.Bool
+	auth string
+	quit bool
+	exit sync.Once
 
 	stats struct {
 		opmap map[string]*opStats
 		total atomic2.Int64
 	}
-	exit sync.Once
+	authorized bool
 
 	alloc []Request
+	batch []sync.WaitGroup
 }
 
 func (s *Session) String() string {
@@ -107,15 +106,23 @@ func (s *Session) Start(d Dispatcher, maxPipeline int) {
 	}()
 }
 
+func (s *Session) allocBatch() *sync.WaitGroup {
+	var p = s.batch
+	if len(p) == 0 {
+		p = make([]sync.WaitGroup, 64)
+	}
+	s.batch = p[1:]
+	w := &p[0]
+	return w
+}
+
 func (s *Session) makeRequest() *Request {
 	var p = s.alloc
 	if len(p) == 0 {
-		p = make([]Request, 68)
+		p = make([]Request, 64)
 	}
 	s.alloc = p[1:]
 	r := &p[0]
-	r.Batch = &r.batch
-	r.Broken = &s.broken
 	return r
 }
 
@@ -221,8 +228,9 @@ func (s *Session) handleRequest(multi []*redis.Resp, d Dispatcher) (*Request, er
 
 	r := s.makeRequest()
 	r.OpStr = opstr
-	r.Start = usnow
 	r.Multi = multi
+	r.Start = usnow
+	r.Batch = s.allocBatch()
 
 	if opstr == "QUIT" {
 		return s.handleQuit(r)

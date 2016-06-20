@@ -6,6 +6,7 @@ package router
 import (
 	"net"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,8 +27,9 @@ func TestBackend(t *testing.T) {
 		defer close(reqc)
 		var multi = []*redis.Resp{redis.NewBulkBytes(make([]byte, 4096))}
 		for i := 0; i < cap(reqc); i++ {
-			r := NewRequest()
+			r := &Request{}
 			r.Multi = multi
+			r.Batch = &sync.WaitGroup{}
 			bc.PushBack(r)
 			reqc <- r
 		}
