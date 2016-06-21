@@ -36,7 +36,7 @@ type Session struct {
 	}
 	authorized bool
 
-	alloc []Request
+	cache []Request
 	batch []sync.WaitGroup
 }
 
@@ -106,28 +106,26 @@ func (s *Session) Start(d Dispatcher, maxPipeline int) {
 	}()
 }
 
-func (s *Session) allocBatch() *sync.WaitGroup {
+func (s *Session) newBatch() *sync.WaitGroup {
 	var p = s.batch
 	if len(p) == 0 {
 		p = make([]sync.WaitGroup, 64)
 	}
 	s.batch = p[1:]
-	w := &p[0]
-	return w
+	return &p[0]
 }
 
-func (s *Session) makeRequest() *Request {
-	var p = s.alloc
+func (s *Session) newRequest() *Request {
+	var p = s.cache
 	if len(p) == 0 {
 		p = make([]Request, 64)
 	}
-	s.alloc = p[1:]
-	r := &p[0]
-	return r
+	s.cache = p[1:]
+	return &p[0]
 }
 
-func (s *Session) makeSubRequest(r *Request, opstr string, multi []*redis.Resp) *Request {
-	x := s.makeRequest()
+func (s *Session) newSubRequest(r *Request, opstr string, multi []*redis.Resp) *Request {
+	x := s.newRequest()
 	x.OpStr = opstr
 	x.Multi = multi
 	x.Batch = r.Batch
@@ -226,11 +224,11 @@ func (s *Session) handleRequest(multi []*redis.Resp, d Dispatcher) (*Request, er
 	s.LastOpUnix = usnow / 1e6
 	s.Ops++
 
-	r := s.makeRequest()
+	r := s.newRequest()
 	r.OpStr = opstr
 	r.Multi = multi
 	r.Start = usnow
-	r.Batch = s.allocBatch()
+	r.Batch = s.newBatch()
 
 	if opstr == "QUIT" {
 		return s.handleQuit(r)
@@ -318,7 +316,7 @@ func (s *Session) handleRequestMGet(r *Request, d Dispatcher) (*Request, error) 
 	}
 	var sub = make([]*Request, nkeys)
 	for i := 0; i < len(sub); i++ {
-		sub[i] = s.makeSubRequest(r, r.OpStr, []*redis.Resp{
+		sub[i] = s.newSubRequest(r, r.OpStr, []*redis.Resp{
 			r.Multi[0],
 			r.Multi[i+1],
 		})
@@ -358,7 +356,7 @@ func (s *Session) handleRequestMSet(r *Request, d Dispatcher) (*Request, error) 
 	}
 	var sub = make([]*Request, nblks/2)
 	for i := 0; i < len(sub); i++ {
-		sub[i] = s.makeSubRequest(r, r.OpStr, []*redis.Resp{
+		sub[i] = s.newSubRequest(r, r.OpStr, []*redis.Resp{
 			r.Multi[0],
 			r.Multi[i*2+1],
 			r.Multi[i*2+2],
@@ -393,7 +391,7 @@ func (s *Session) handleRequestMDel(r *Request, d Dispatcher) (*Request, error) 
 	}
 	var sub = make([]*Request, nkeys)
 	for i := 0; i < len(sub); i++ {
-		sub[i] = s.makeSubRequest(r, r.OpStr, []*redis.Resp{
+		sub[i] = s.newSubRequest(r, r.OpStr, []*redis.Resp{
 			r.Multi[0],
 			r.Multi[i+1],
 		})

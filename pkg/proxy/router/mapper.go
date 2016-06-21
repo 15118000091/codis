@@ -83,12 +83,11 @@ func getOpStr(multi []*redis.Resp) (string, error) {
 		return "", ErrBadOpStrLen
 	}
 	for i := 0; i < len(op); i++ {
-		c := uint8(op[i])
-		if k := int(c); k < len(charmap) {
-			upper[i] = charmap[k]
-		} else {
+		k := int(op[i])
+		if k >= len(charmap) {
 			return strings.ToUpper(string(op)), nil
 		}
+		upper[i] = charmap[k]
 	}
 	op = upper[:len(op)]
 	if opstr, ok := redisfast[string(op)]; ok {

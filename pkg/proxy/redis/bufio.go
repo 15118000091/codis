@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/CodisLabs/codis/pkg/utils/math2"
+	"github.com/CodisLabs/codis/pkg/utils/errors"
 )
 
 type Reader struct {
@@ -15,27 +15,27 @@ type Reader struct {
 	rd   io.Reader
 	rpos int
 	wpos int
-	last int
 
-	alloc []byte
+	slice []byte
 }
 
 func NewReaderSize(rd io.Reader, size int) *Reader {
-	size = math2.MaxInt(size, 1024)
-	return &Reader{rd: rd, buf: make([]byte, size), last: -1}
+	if size <= 0 {
+		size = 1024
+	}
+	return &Reader{rd: rd, buf: make([]byte, size)}
 }
 
 func (b *Reader) makeSlice(n int) []byte {
 	if n >= 512 {
 		return make([]byte, n)
 	}
-	var p = b.alloc
+	var p = b.slice
 	if len(p) < n {
 		p = make([]byte, 8192)
 	}
-	var s = p[:n:n]
-	b.alloc = p[n:]
-	return s
+	b.slice = p[n:]
+	return p[:n:n]
 }
 
 func (b *Reader) fill() error {
@@ -43,12 +43,9 @@ func (b *Reader) fill() error {
 		return b.err
 	}
 	if b.rpos > 0 {
-		copy(b.buf, b.buf[b.rpos:b.wpos])
-		b.wpos = b.wpos - b.rpos
+		n := copy(b.buf, b.buf[b.rpos:b.wpos])
 		b.rpos = 0
-	}
-	if b.wpos == len(b.buf) {
-		return nil
+		b.wpos = n
 	}
 	n, err := b.rd.Read(b.buf[b.wpos:])
 	if err != nil {
@@ -61,6 +58,10 @@ func (b *Reader) fill() error {
 	return b.err
 }
 
+func (b *Reader) buffered() int {
+	return b.wpos - b.rpos
+}
+
 func (b *Reader) Read(p []byte) (int, error) {
 	if b.err != nil || len(p) == 0 {
 		return 0, b.err
@@ -70,8 +71,6 @@ func (b *Reader) Read(p []byte) (int, error) {
 			n, err := b.rd.Read(p)
 			if err != nil {
 				b.err = err
-			} else {
-				b.last = int(p[n-1])
 			}
 			return n, b.err
 		}
@@ -80,8 +79,7 @@ func (b *Reader) Read(p []byte) (int, error) {
 		}
 	}
 	n := copy(p, b.buf[b.rpos:b.wpos])
-	b.rpos = b.rpos + n
-	b.last = int(p[n-1])
+	b.rpos += n
 	return n, nil
 }
 
@@ -95,33 +93,21 @@ func (b *Reader) ReadByte() (byte, error) {
 		}
 	}
 	c := b.buf[b.rpos]
-	b.rpos = b.rpos + 1
-	b.last = int(c)
+	b.rpos += 1
 	return c, nil
 }
 
-func (b *Reader) UnreadByte() error {
+func (b *Reader) PeekByte() (byte, error) {
 	if b.err != nil {
-		return b.err
+		return 0, b.err
 	}
-	if b.last < 0 {
-		return bufio.ErrInvalidUnreadByte
+	if b.buffered() == 0 {
+		if b.fill() != nil {
+			return 0, b.err
+		}
 	}
-	if b.wpos > 0 && b.rpos == 0 {
-		return bufio.ErrInvalidUnreadByte
-	}
-	if b.rpos > 0 {
-		b.rpos = b.rpos - 1
-	} else {
-		b.wpos = 1
-	}
-	b.buf[b.rpos] = byte(b.last)
-	b.last = -1
-	return nil
-}
-
-func (b *Reader) buffered() int {
-	return b.wpos - b.rpos
+	c := b.buf[b.rpos]
+	return c, nil
 }
 
 func (b *Reader) ReadSlice(delim byte) ([]byte, error) {
@@ -131,18 +117,14 @@ func (b *Reader) ReadSlice(delim byte) ([]byte, error) {
 	for {
 		var index = bytes.IndexByte(b.buf[b.rpos:b.wpos], delim)
 		if index >= 0 {
-			n := index + 1
-			s := b.buf[b.rpos : b.rpos+n]
-			b.rpos = b.rpos + n
-			b.last = int(s[n-1])
-			return s, nil
+			limit := b.rpos + index + 1
+			slice := b.buf[b.rpos:limit]
+			b.rpos = limit
+			return slice, nil
 		}
 		if b.buffered() == len(b.buf) {
-			n := len(b.buf)
-			s := b.buf
 			b.rpos = b.wpos
-			b.last = int(s[n-1])
-			return s, bufio.ErrBufferFull
+			return b.buf, bufio.ErrBufferFull
 		}
 		if b.fill() != nil {
 			return nil, b.err
@@ -177,6 +159,42 @@ func (b *Reader) ReadBytes(delim byte) ([]byte, error) {
 	return s, nil
 }
 
+var ErrSliceTooLong = errors.New("slice is too long")
+
+func (b *Reader) ReadSlice2(delim byte, maxlen int) ([]byte, error) {
+	f, err := b.ReadSlice(delim)
+	if err != nil {
+		if err != bufio.ErrBufferFull {
+			return nil, err
+		}
+		if len(f) > maxlen {
+			return nil, ErrSliceTooLong
+		}
+		pfx := b.makeSlice(maxlen)[:len(f)]
+		copy(pfx, f)
+		sfx, err := b.ReadSlice(delim)
+		if err != nil {
+			return nil, err
+		}
+		if len(pfx)+len(sfx) > maxlen {
+			return nil, ErrSliceTooLong
+		}
+		return append(pfx, sfx...), nil
+	}
+	return f, nil
+}
+
+func (b *Reader) ReadFull(n int) ([]byte, error) {
+	if b.err != nil || n == 0 {
+		return nil, b.err
+	}
+	var s = b.makeSlice(n)
+	if _, err := io.ReadFull(b, s); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
 type Writer struct {
 	err error
 	buf []byte
@@ -187,7 +205,7 @@ type Writer struct {
 
 func NewWriterSize(wr io.Writer, size int) *Writer {
 	if size <= 0 {
-		size = 8192
+		size = 1024
 	}
 	return &Writer{wr: wr, buf: make([]byte, size)}
 }
@@ -225,7 +243,7 @@ func (b *Writer) Write(p []byte) (nn int, err error) {
 			n, b.err = b.wr.Write(p)
 		} else {
 			n = copy(b.buf[b.end:], p)
-			b.end = b.end + n
+			b.end += n
 			b.flush()
 		}
 		nn, p = nn+n, p[n:]
@@ -234,7 +252,7 @@ func (b *Writer) Write(p []byte) (nn int, err error) {
 		return nn, b.err
 	}
 	n := copy(b.buf[b.end:], p)
-	b.end = b.end + n
+	b.end += n
 	return nn + n, nil
 }
 
@@ -246,14 +264,14 @@ func (b *Writer) WriteByte(c byte) error {
 		return b.err
 	}
 	b.buf[b.end] = c
-	b.end = b.end + 1
+	b.end += 1
 	return nil
 }
 
 func (b *Writer) WriteString(s string) (nn int, err error) {
 	for b.err == nil && len(s) > b.available() {
 		n := copy(b.buf[b.end:], s)
-		b.end = b.end + n
+		b.end += n
 		b.flush()
 		nn, s = nn+n, s[n:]
 	}
@@ -261,6 +279,6 @@ func (b *Writer) WriteString(s string) (nn int, err error) {
 		return nn, b.err
 	}
 	n := copy(b.buf[b.end:], s)
-	b.end = b.end + n
+	b.end += n
 	return nn + n, nil
 }
