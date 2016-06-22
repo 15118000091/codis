@@ -5,6 +5,7 @@ package redis
 
 import (
 	"net"
+	"testing"
 	"time"
 
 	"github.com/CodisLabs/codis/pkg/utils/assert"
@@ -35,4 +36,11 @@ func newConnPair() (*Conn, *Conn) {
 	conn2, ok := <-cc
 	assert.Must(ok)
 	return conn1, conn2
+}
+
+func BenchmarkConn128K(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		c := NewConnSize(&net.TCPConn{}, 128*1024)
+		c.Close()
+	}
 }

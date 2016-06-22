@@ -38,5 +38,8 @@ distclean: clean
 gotest: codis-deps
 	go test ./cmd/... ./pkg/...
 
+gobench:
+	go test -v -bench=. ./pkg/proxy/...
+
 docker:
 	docker build --force-rm -t codis-image .

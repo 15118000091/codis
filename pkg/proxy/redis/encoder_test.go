@@ -5,6 +5,7 @@ package redis
 
 import (
 	"bytes"
+	"io/ioutil"
 	"math"
 	"strconv"
 	"testing"
@@ -81,3 +82,28 @@ func testEncodeAndCheck(t *testing.T, resp *Resp, expect []byte) {
 	assert.MustNoError(err)
 	assert.Must(bytes.Equal(b, expect))
 }
+
+func newBenchmarkEncoder(n int) *Encoder {
+	return NewEncoderSize(ioutil.Discard, 1024*128)
+}
+
+func benchmarkEncode(b *testing.B, n int) {
+	multi := []*Resp{
+		NewBulkBytes(make([]byte, n)),
+	}
+	e := newBenchmarkEncoder(n)
+	for i := 0; i < b.N; i++ {
+		assert.MustNoError(e.EncodeMultiBulk(multi, false))
+	}
+	assert.MustNoError(e.Flush())
+}
+
+func BenchmarkEncode16B(b *testing.B)  { benchmarkEncode(b, 16) }
+func BenchmarkEncode64B(b *testing.B)  { benchmarkEncode(b, 64) }
+func BenchmarkEncode512B(b *testing.B) { benchmarkEncode(b, 512) }
+func BenchmarkEncode1K(b *testing.B)   { benchmarkEncode(b, 1024) }
+func BenchmarkEncode2K(b *testing.B)   { benchmarkEncode(b, 1024*2) }
+func BenchmarkEncode4K(b *testing.B)   { benchmarkEncode(b, 1024*4) }
+func BenchmarkEncode16K(b *testing.B)  { benchmarkEncode(b, 1024*16) }
+func BenchmarkEncode32K(b *testing.B)  { benchmarkEncode(b, 1024*32) }
+func BenchmarkEncode128K(b *testing.B) { benchmarkEncode(b, 1024*128) }
