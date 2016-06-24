@@ -14,7 +14,7 @@ import (
 
 func init() {
 	if filepath.Separator != '/' {
-		log.Panicf("bad Separator = '%c', shoud be '/'", filepath.Separator)
+		log.Panicf("bad Separator = '%c', must be '/'", filepath.Separator)
 	}
 }
 
@@ -56,14 +56,6 @@ func (s *Store) ProxyBase() string {
 
 func (s *Store) ProxyPath(token string) string {
 	return filepath.Join(s.prefix, "proxy", fmt.Sprintf("proxy-%s", token))
-}
-
-func (s *Store) TopomClusterBase() string {
-	return filepath.Join(s.prefix, "topom-cluster")
-}
-
-func (s *Store) TopomClusterPath(name string) string {
-	return filepath.Join(s.prefix, "topom-cluster", name)
 }
 
 func (s *Store) Acquire(topom *Topom) error {
@@ -184,34 +176,6 @@ func (s *Store) UpdateProxy(p *Proxy) error {
 
 func (s *Store) DeleteProxy(token string) error {
 	return s.client.Delete(s.ProxyPath(token))
-}
-
-func (s *Store) CreateTopomClusterEphemeral(topom *Topom) (<-chan struct{}, string, error) {
-	return s.client.CreateEphemeralInOrder(s.TopomClusterBase(), topom.Encode())
-}
-
-func (s *Store) LoadTopomClusterEphemeral(path string, must bool) (*Topom, error) {
-	b, err := s.client.Read(path, must)
-	if err != nil || b == nil {
-		return nil, err
-	}
-	t := &Topom{}
-	if err := jsonDecode(t, b); err != nil {
-		return nil, err
-	}
-	return t, nil
-}
-
-func (s *Store) ElectTopomClusterEphemeralLeader() (<-chan struct{}, string, error) {
-	w, paths, err := s.client.ListEphemeralInOrder(s.TopomClusterBase())
-	if err != nil {
-		return nil, "", err
-	}
-	var leader string
-	if len(paths) != 0 {
-		leader = paths[0]
-	}
-	return w, leader, nil
 }
 
 func ValidProductName(name string) error {
