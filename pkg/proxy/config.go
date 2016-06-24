@@ -51,6 +51,9 @@ session_max_pipeline = 1024
 
 # Set period between keep alives. Set 0 to disable.
 session_keepalive_period = 60
+
+# Set max number of alive sessions. Set 0 to unlimited number.
+max_alive_sessions = 10000
 `
 
 type Config struct {
@@ -74,6 +77,8 @@ type Config struct {
 	SessionMaxBufSize      int `toml:"session_max_bufsize" json:"session_max_bufsize"`
 	SessionMaxPipeline     int `toml:"session_max_pipeline" json:"session_max_pipeline"`
 	SessionKeepAlivePeriod int `toml:"session_keepalive_period" json:"session_keepalive_period"`
+
+	MaxAliveSessions int `toml:"max_alive_sessions" json:"max_alive_sessions"`
 }
 
 func NewDefaultConfig() *Config {

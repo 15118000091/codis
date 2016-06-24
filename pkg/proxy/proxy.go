@@ -315,7 +315,7 @@ func (s *Proxy) newSession(c net.Conn) {
 	x := router.NewSessionSize(c, s.config.ProductAuth,
 		s.config.SessionMaxBufSize, s.config.SessionMaxTimeout)
 	x.SetKeepAlivePeriod(s.config.SessionKeepAlivePeriod)
-	x.Start(s.router, s.config.SessionMaxPipeline)
+	x.Start(s.router, s.config.SessionMaxPipeline, s.config.MaxAliveSessions)
 }
 
 func (s *Proxy) acceptConn(l net.Listener) (net.Conn, error) {

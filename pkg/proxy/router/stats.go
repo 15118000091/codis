@@ -117,9 +117,9 @@ var sessions struct {
 	alive atomic2.Int64
 }
 
-func incrSessions() {
+func incrSessions() int64 {
 	sessions.total.Incr()
-	sessions.alive.Incr()
+	return sessions.alive.Incr()
 }
 
 func decrSessions() {

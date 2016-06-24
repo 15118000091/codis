@@ -34,6 +34,8 @@ type Session struct {
 		opmap map[string]*opStats
 		total atomic2.Int64
 	}
+	start sync.Once
+
 	authorized bool
 
 	cache []Request
@@ -89,21 +91,34 @@ func (s *Session) CloseWithError(err error) {
 	})
 }
 
-func (s *Session) Start(d Dispatcher, maxPipeline int) {
-	tasks := make(chan *Request, maxPipeline)
-	var ch = make(chan struct{})
+var ErrTooManySessions = errors.New("too many sessions")
 
-	go func() {
-		defer close(ch)
-		s.loopWriter(tasks)
-	}()
+func (s *Session) Start(d Dispatcher, maxPipeline, maxSessions int) {
+	s.start.Do(func() {
+		total := int(incrSessions())
+		if maxSessions != 0 && total > maxSessions {
+			go func() {
+				s.Conn.Writer.Encode(redis.NewError([]byte("ERR max number of clients reached")), true)
+				s.CloseWithError(ErrTooManySessions)
+			}()
+			decrSessions()
+			return
+		}
 
-	go func() {
-		incrSessions()
-		s.loopReader(tasks, d)
-		<-ch
-		decrSessions()
-	}()
+		tasks := make(chan *Request, maxPipeline)
+		var ch = make(chan struct{})
+
+		go func() {
+			defer close(ch)
+			s.loopWriter(tasks)
+		}()
+
+		go func() {
+			s.loopReader(tasks, d)
+			<-ch
+			decrSessions()
+		}()
+	})
 }
 
 func (s *Session) newBatch() *sync.WaitGroup {
