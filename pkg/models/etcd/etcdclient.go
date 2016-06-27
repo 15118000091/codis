@@ -18,12 +18,20 @@ import (
 
 var ErrClosedEtcdClient = errors.New("use of closed etcd client")
 
+var (
+	ErrNotDir  = errors.New("etcd: not a dir")
+	ErrNotFile = errors.New("etcd: not a file")
+)
+
 type EtcdClient struct {
 	sync.Mutex
 	kapi client.KeysAPI
 
 	closed  bool
 	timeout time.Duration
+
+	cancel  context.CancelFunc
+	context context.Context
 }
 
 func New(addr string, timeout time.Duration) (*EtcdClient, error) {
@@ -33,19 +41,23 @@ func New(addr string, timeout time.Duration) (*EtcdClient, error) {
 			endpoints[i] = "http://" + s
 		}
 	}
-	config := client.Config{
-		Endpoints: endpoints,
-		Transport: client.DefaultTransport,
-
-		HeaderTimeoutPerRequest: time.Second * 3,
+	if timeout <= 0 {
+		timeout = time.Second * 5
 	}
-	c, err := client.New(config)
+
+	c, err := client.New(client.Config{
+		Endpoints: endpoints, Transport: client.DefaultTransport,
+		HeaderTimeoutPerRequest: time.Second * 5,
+	})
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	return &EtcdClient{
+
+	client := &EtcdClient{
 		kapi: client.NewKeysAPI(c), timeout: timeout,
-	}, nil
+	}
+	client.context, client.cancel = context.WithCancel(context.Background())
+	return client, nil
 }
 
 func (c *EtcdClient) Close() error {
@@ -55,24 +67,12 @@ func (c *EtcdClient) Close() error {
 		return nil
 	}
 	c.closed = true
+	c.cancel()
 	return nil
 }
 
 func (c *EtcdClient) newContext() (context.Context, context.CancelFunc) {
-	if c.timeout == 0 {
-		return context.Background(), func() {}
-	} else {
-		return context.WithTimeout(context.Background(), c.timeout)
-	}
-}
-
-func (c *EtcdClient) Do(fn func(kapi client.KeysAPI) error) error {
-	c.Lock()
-	defer c.Unlock()
-	if c.closed {
-		return errors.Trace(ErrClosedEtcdClient)
-	}
-	return fn(c.kapi)
+	return context.WithTimeout(c.context, c.timeout)
 }
 
 func isErrNoNode(err error) bool {
@@ -93,28 +93,21 @@ func isErrNodeExists(err error) bool {
 	return false
 }
 
-func (c *EtcdClient) Mkdir(dir string) error {
+func (c *EtcdClient) Mkdir(path string) error {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
 		return errors.Trace(ErrClosedEtcdClient)
 	}
-	return c.mkdir(dir)
-}
-
-func (c *EtcdClient) mkdir(dir string) error {
-	if dir == "" || dir == "/" {
-		return nil
-	}
+	log.Debugf("etcd mkdir node %s", path)
 	cntx, cancel := c.newContext()
 	defer cancel()
-	_, err := c.kapi.Set(cntx, dir, "", &client.SetOptions{Dir: true, PrevExist: client.PrevNoExist})
-	if err != nil {
-		if isErrNodeExists(err) {
-			return nil
-		}
+	_, err := c.kapi.Set(cntx, path, "", &client.SetOptions{Dir: true, PrevExist: client.PrevNoExist})
+	if err != nil && !isErrNodeExists(err) {
+		log.Debugf("etcd mkdir node %s failed: %s", path, err)
 		return errors.Trace(err)
 	}
+	log.Debugf("etcd mkdir node OK")
 	return nil
 }
 
@@ -180,18 +173,27 @@ func (c *EtcdClient) Read(path string) ([]byte, error) {
 	}
 	cntx, cancel := c.newContext()
 	defer cancel()
-	log.Debugf("etcd read node %s", path)
 	r, err := c.kapi.Get(cntx, path, &client.GetOptions{Quorum: true})
-	if err != nil && !isErrNoNode(err) {
+	switch {
+	case err != nil:
+		if isErrNoNode(err) {
+			return nil, nil
+		}
+		log.Debugf("etcd read node %s failed: %s", path, err)
 		return nil, errors.Trace(err)
-	} else if r == nil || r.Node.Dir {
-		return nil, nil
-	} else {
+	case !r.Node.Dir:
 		return []byte(r.Node.Value), nil
+	default:
+		log.Debugf("etcd read node %s failed: not a file", path)
+		return nil, errors.Trace(ErrNotFile)
 	}
 }
 
 func (c *EtcdClient) List(path string) ([]string, error) {
+	return c.ListInOrder(path)
+}
+
+func (c *EtcdClient) ListInOrder(path string) ([]string, error) {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
@@ -199,13 +201,18 @@ func (c *EtcdClient) List(path string) ([]string, error) {
 	}
 	cntx, cancel := c.newContext()
 	defer cancel()
-	log.Debugf("etcd list node %s", path)
-	r, err := c.kapi.Get(cntx, path, &client.GetOptions{Quorum: true, Recursive: true})
-	if err != nil && !isErrNoNode(err) {
+	r, err := c.kapi.Get(cntx, path, &client.GetOptions{Quorum: true, Sort: true})
+	switch {
+	case err != nil:
+		if isErrNoNode(err) {
+			return nil, nil
+		}
+		log.Debugf("etcd list-inorder node %s failed: %s", path, err)
 		return nil, errors.Trace(err)
-	} else if r == nil || !r.Node.Dir {
-		return nil, nil
-	} else {
+	case !r.Node.Dir:
+		log.Debugf("etcd list-inorder node %s failed: not a dir", path)
+		return nil, errors.Trace(ErrNotDir)
+	default:
 		var files []string
 		for _, node := range r.Node.Nodes {
 			files = append(files, node.Key)
@@ -214,91 +221,72 @@ func (c *EtcdClient) List(path string) ([]string, error) {
 	}
 }
 
-func (c *EtcdClient) CreateEphemeralInOrder(path string, data []byte) (string, <-chan struct{}, error) {
-	c.Lock()
-	defer c.Unlock()
-	if c.closed {
-		return "", nil, errors.Trace(ErrClosedEtcdClient)
-	}
-	cntx, cancel := c.newContext()
-	defer cancel()
-	log.Debugf("etcd create-ephemeral path = %s", path)
-	r, err := c.kapi.CreateInOrder(cntx, path, string(data), &client.CreateInOrderOptions{TTL: c.timeout})
-	if err != nil {
-		log.Debugf("etcd create-ephemeral path = %s failed: %s", path, err)
-		return "", nil, errors.Trace(err)
-	}
-	node := r.Node.Key
-	wait := make(chan struct{})
-	if c.timeout != 0 {
-		go func() {
-			defer close(wait)
-			for {
-				if err := c.refreshEphemeralNode(node); err != nil {
-					log.Debugf("etcd refresh node %s failed: %s", node, err)
-					return
-				}
-				time.Sleep(c.timeout / 2)
-			}
-		}()
-	}
-	log.Debugf("etcd create-ephemeral OK, node = %s", node)
-	return node, wait, nil
-}
-
-func (c *EtcdClient) refreshEphemeralNode(path string) error {
-	cntx, cancel := c.newContext()
-	defer cancel()
-	_, err := c.kapi.Set(cntx, path, "", &client.SetOptions{PrevExist: client.PrevExist, TTL: c.timeout, Refresh: true})
-	if err != nil {
-		return errors.Trace(err)
-	}
-	return nil
-}
-
-func (c *EtcdClient) WatchEphemeralNodes(path string) (<-chan map[string][]byte, error) {
+func (c *EtcdClient) CreateEphemeral(path string, data []byte) (<-chan struct{}, error) {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
 		return nil, errors.Trace(ErrClosedEtcdClient)
 	}
-	log.Debugf("etcd watch path = %s", path)
 	cntx, cancel := c.newContext()
 	defer cancel()
-	r, err := c.kapi.Get(cntx, path, &client.GetOptions{Quorum: true})
-	if err != nil && !isErrNoNode(err) {
+	log.Debugf("etcd create-ephemeral node %s", path)
+	_, err := c.kapi.Set(cntx, path, string(data), &client.SetOptions{PrevExist: client.PrevNoExist, TTL: c.timeout})
+	if err != nil {
+		log.Debugf("etcd create-ephemeral node %s failed: %s", path, err)
 		return nil, errors.Trace(err)
-	} else if r == nil || !r.Node.Dir {
-		return nil, nil
 	}
-	snap := make(map[string][]byte)
-	for _, node := range r.Node.Nodes {
-		snap[node.Key] = []byte(node.Value)
+	log.Debugf("etcd create-ephemeral OK")
+	return runRefreshEphemeral(c, path), nil
+}
+
+func (c *EtcdClient) CreateEphemeralInOrder(path string, data []byte) (<-chan struct{}, string, error) {
+	c.Lock()
+	defer c.Unlock()
+	if c.closed {
+		return nil, "", errors.Trace(ErrClosedEtcdClient)
 	}
-	watch := make(chan map[string][]byte, 1)
-	watch <- snap
+	cntx, cancel := c.newContext()
+	defer cancel()
+	log.Debugf("etcd create-ephemeral-inorder node %s", path)
+	r, err := c.kapi.CreateInOrder(cntx, path, string(data), &client.CreateInOrderOptions{TTL: c.timeout})
+	if err != nil {
+		log.Debugf("etcd create-ephemeral-inorder node %s failed: %s", path, err)
+		return nil, "", errors.Trace(err)
+	}
+	node := r.Node.Key
+	log.Debugf("etcd create-ephemeral-inorder OK, node = %s", node)
+	return runRefreshEphemeral(c, node), node, nil
+}
+
+func runRefreshEphemeral(c *EtcdClient, path string) <-chan struct{} {
+	signal := make(chan struct{})
 	go func() {
-		defer close(watch)
-		watcher := c.kapi.Watcher(path, &client.WatcherOptions{AfterIndex: r.Index, Recursive: true})
+		defer close(signal)
 		for {
-			r, err := watcher.Next(context.Background())
-			if err != nil {
-				log.Debugf("etch watch path = %s failed: %s", path, err)
+			if err := c.RefreshEphemeral(path); err != nil {
 				return
+			} else {
+				time.Sleep(c.timeout / 2)
 			}
-			switch r.Action {
-			case "expire", "delete":
-				delete(snap, r.Node.Key)
-			case "create", "update", "set":
-				snap[r.Node.Key] = []byte(r.Node.Value)
-			case "get":
-				continue
-			default:
-				log.Debugf("etcd watch path = %s, invalid action = %s", path, r.Action)
-				return
-			}
-			watch <- snap
 		}
 	}()
-	return watch, nil
+	return signal
+}
+
+func (c *EtcdClient) RefreshEphemeral(path string) error {
+	c.Lock()
+	defer c.Unlock()
+	if c.closed {
+		return errors.Trace(ErrClosedEtcdClient)
+	}
+	cntx, cancel := c.newContext()
+	defer cancel()
+	log.Debugf("etcd refresh-ephemeral node %s", path)
+	_, err := c.kapi.Set(cntx, path, "", &client.SetOptions{PrevExist: client.PrevExist, Refresh: true, TTL: c.timeout})
+	if err != nil {
+		log.Debugf("etcd refresh-ephemeral node %s failed: %s", path, err)
+		return errors.Trace(err)
+	}
+	log.Debugf("etcd refresh-ephemeral OK")
+	return nil
 }
