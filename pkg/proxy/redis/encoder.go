@@ -92,14 +92,16 @@ func (e *Encoder) Flush() error {
 	return e.Err
 }
 
-func Encode(w io.Writer, r *Resp, flush bool) error {
-	return NewEncoder(w).Encode(r, flush)
+func Encode(w io.Writer, r *Resp) error {
+	return NewEncoder(w).Encode(r, true)
 }
 
 func EncodeToBytes(r *Resp) ([]byte, error) {
 	var b = &bytes.Buffer{}
-	err := Encode(b, r, true)
-	return b.Bytes(), err
+	if err := Encode(b, r); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
 }
 
 func (e *Encoder) encodeResp(r *Resp) error {

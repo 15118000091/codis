@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"io"
-
-	"github.com/CodisLabs/codis/pkg/utils/errors"
 )
 
 type Reader struct {
@@ -53,7 +51,7 @@ func (b *Reader) fill() error {
 	} else if n == 0 {
 		b.err = io.ErrNoProgress
 	} else {
-		b.wpos = b.wpos + n
+		b.wpos += n
 	}
 	return b.err
 }
@@ -132,6 +130,19 @@ func (b *Reader) ReadSlice(delim byte) ([]byte, error) {
 	}
 }
 
+func (b *Reader) ReadSlice2(delim byte) ([]byte, error) {
+	f, err := b.ReadSlice(delim)
+	if err != nil {
+		if err != bufio.ErrBufferFull {
+			return nil, err
+		} else {
+			b.rpos = 0
+			return b.ReadBytes(delim)
+		}
+	}
+	return f, nil
+}
+
 func (b *Reader) ReadBytes(delim byte) ([]byte, error) {
 	var full [][]byte
 	var last []byte
@@ -151,48 +162,23 @@ func (b *Reader) ReadBytes(delim byte) ([]byte, error) {
 		size += len(f)
 	}
 	var n int
-	var s = b.makeSlice(size)
+	var buf = b.makeSlice(size)
 	for _, frag := range full {
-		n += copy(s[n:], frag)
+		n += copy(buf[n:], frag)
 	}
-	copy(s[n:], last)
-	return s, nil
-}
-
-var ErrSliceTooLong = errors.New("slice is too long")
-
-func (b *Reader) ReadSlice2(delim byte, maxlen int) ([]byte, error) {
-	f, err := b.ReadSlice(delim)
-	if err != nil {
-		if err != bufio.ErrBufferFull {
-			return nil, err
-		}
-		if len(f) > maxlen {
-			return nil, ErrSliceTooLong
-		}
-		pfx := b.makeSlice(maxlen)[:len(f)]
-		copy(pfx, f)
-		sfx, err := b.ReadSlice(delim)
-		if err != nil {
-			return nil, err
-		}
-		if len(pfx)+len(sfx) > maxlen {
-			return nil, ErrSliceTooLong
-		}
-		return append(pfx, sfx...), nil
-	}
-	return f, nil
+	copy(buf[n:], last)
+	return buf, nil
 }
 
 func (b *Reader) ReadFull(n int) ([]byte, error) {
 	if b.err != nil || n == 0 {
 		return nil, b.err
 	}
-	var s = b.makeSlice(n)
-	if _, err := io.ReadFull(b, s); err != nil {
+	var buf = b.makeSlice(n)
+	if _, err := io.ReadFull(b, buf); err != nil {
 		return nil, err
 	}
-	return s, nil
+	return buf, nil
 }
 
 type Writer struct {

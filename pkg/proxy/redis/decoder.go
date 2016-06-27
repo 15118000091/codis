@@ -87,7 +87,7 @@ func (d *Decoder) Decode() (*Resp, error) {
 	if err != nil {
 		d.Err = err
 	}
-	return r, err
+	return r, d.Err
 }
 
 func (d *Decoder) DecodeMultiBulk() ([]*Resp, error) {
@@ -169,7 +169,7 @@ func (d *Decoder) decodeTextBytes() ([]byte, error) {
 }
 
 func (d *Decoder) decodeInt() (int64, error) {
-	b, err := d.br.ReadSlice2('\n', 32)
+	b, err := d.br.ReadSlice2('\n')
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
@@ -193,8 +193,8 @@ func (d *Decoder) decodeBulkBytes() ([]byte, error) {
 	case n == -1:
 		return nil, nil
 	}
-	b := make([]byte, n+2)
-	if _, err := io.ReadFull(d.br, b); err != nil {
+	b, err := d.br.ReadFull(int(n) + 2)
+	if err != nil {
 		return nil, errors.Trace(err)
 	}
 	if b[n] != '\r' || b[n+1] != '\n' {
@@ -218,9 +218,11 @@ func (d *Decoder) decodeArray() ([]*Resp, error) {
 	}
 	array := d.makeArray(int(n))
 	for i := 0; i < len(array); i++ {
-		if array[i], err = d.decodeResp(); err != nil {
+		r, err := d.decodeResp()
+		if err != nil {
 			return nil, err
 		}
+		array[i] = r
 	}
 	return array, nil
 }
@@ -268,12 +270,14 @@ func (d *Decoder) decodeMultiBulk() ([]*Resp, error) {
 	}
 	multi := d.makeArray(int(n))
 	for i := 0; i < len(multi); i++ {
-		if multi[i], err = d.decodeResp(); err != nil {
+		r, err := d.decodeResp()
+		if err != nil {
 			return nil, err
 		}
-		if multi[i].Type != TypeBulkBytes {
+		if r.Type != TypeBulkBytes {
 			return nil, errors.Trace(ErrBadMultiBulkContent)
 		}
+		multi[i] = r
 	}
 	return multi, nil
 }
