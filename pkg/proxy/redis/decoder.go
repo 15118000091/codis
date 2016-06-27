@@ -50,7 +50,7 @@ func btoi(b []byte) (int64, error) {
 }
 
 type Decoder struct {
-	*bufio.Reader
+	br *bufio.Reader
 
 	Err error
 }
@@ -58,7 +58,7 @@ type Decoder struct {
 var ErrFailedDecoder = errors.New("use of failed decoder")
 
 func NewDecoder(br *bufio.Reader) *Decoder {
-	return &Decoder{Reader: br}
+	return &Decoder{br: br}
 }
 
 func NewDecoderSize(r io.Reader, size int) *Decoder {
@@ -66,7 +66,7 @@ func NewDecoderSize(r io.Reader, size int) *Decoder {
 	if !ok {
 		br = bufio.NewReaderSize(r, size)
 	}
-	return &Decoder{Reader: br}
+	return &Decoder{br: br}
 }
 
 func (d *Decoder) Decode() (*Resp, error) {
@@ -89,7 +89,7 @@ func DecodeFromBytes(p []byte) (*Resp, error) {
 }
 
 func (d *Decoder) decodeResp(depth int) (*Resp, error) {
-	b, err := d.ReadByte()
+	b, err := d.br.ReadByte()
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -110,7 +110,7 @@ func (d *Decoder) decodeResp(depth int) (*Resp, error) {
 		if depth != 0 {
 			return nil, errors.Errorf("bad resp type %s", t)
 		}
-		if err := d.UnreadByte(); err != nil {
+		if err := d.br.UnreadByte(); err != nil {
 			return nil, errors.Trace(err)
 		}
 		r := &Resp{Type: TypeArray}
@@ -120,7 +120,7 @@ func (d *Decoder) decodeResp(depth int) (*Resp, error) {
 }
 
 func (d *Decoder) decodeTextBytes() ([]byte, error) {
-	b, err := d.ReadBytes('\n')
+	b, err := d.br.ReadBytes('\n')
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -158,7 +158,7 @@ func (d *Decoder) decodeBulkBytes() ([]byte, error) {
 		return nil, nil
 	}
 	b := make([]byte, n+2)
-	if _, err := io.ReadFull(d.Reader, b); err != nil {
+	if _, err := io.ReadFull(d.br, b); err != nil {
 		return nil, errors.Trace(err)
 	}
 	if b[n] != '\r' || b[n+1] != '\n' {

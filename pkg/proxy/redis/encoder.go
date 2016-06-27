@@ -51,7 +51,7 @@ func itob(i int64) []byte {
 }
 
 type Encoder struct {
-	*bufio.Writer
+	bw *bufio.Writer
 
 	Err error
 }
@@ -59,7 +59,7 @@ type Encoder struct {
 var ErrFailedEncoder = errors.New("use of failed redis encoder")
 
 func NewEncoder(bw *bufio.Writer) *Encoder {
-	return &Encoder{Writer: bw}
+	return &Encoder{bw: bw}
 }
 
 func NewEncoderSize(w io.Writer, size int) *Encoder {
@@ -67,21 +67,29 @@ func NewEncoderSize(w io.Writer, size int) *Encoder {
 	if !ok {
 		bw = bufio.NewWriterSize(w, size)
 	}
-	return &Encoder{Writer: bw}
+	return &Encoder{bw: bw}
 }
 
 func (e *Encoder) Encode(r *Resp, flush bool) error {
 	if e.Err != nil {
 		return errors.Trace(ErrFailedEncoder)
 	}
-	err := e.encodeResp(r)
-	if err == nil && flush {
-		err = errors.Trace(e.Flush())
-	}
-	if err != nil {
+	if err := e.encodeResp(r); err != nil {
 		e.Err = err
+	} else if flush {
+		e.Err = errors.Trace(e.bw.Flush())
 	}
-	return err
+	return e.Err
+}
+
+func (e *Encoder) Flush() error {
+	if e.Err != nil {
+		return errors.Trace(ErrFailedEncoder)
+	}
+	if err := e.bw.Flush(); err != nil {
+		e.Err = errors.Trace(err)
+	}
+	return e.Err
 }
 
 func Encode(bw *bufio.Writer, r *Resp, flush bool) error {
@@ -95,7 +103,7 @@ func EncodeToBytes(r *Resp) ([]byte, error) {
 }
 
 func (e *Encoder) encodeResp(r *Resp) error {
-	if err := e.WriteByte(byte(r.Type)); err != nil {
+	if err := e.bw.WriteByte(byte(r.Type)); err != nil {
 		return errors.Trace(err)
 	}
 	switch r.Type {
@@ -111,20 +119,20 @@ func (e *Encoder) encodeResp(r *Resp) error {
 }
 
 func (e *Encoder) encodeTextBytes(b []byte) error {
-	if _, err := e.Write(b); err != nil {
+	if _, err := e.bw.Write(b); err != nil {
 		return errors.Trace(err)
 	}
-	if _, err := e.WriteString("\r\n"); err != nil {
+	if _, err := e.bw.WriteString("\r\n"); err != nil {
 		return errors.Trace(err)
 	}
 	return nil
 }
 
 func (e *Encoder) encodeTextString(s string) error {
-	if _, err := e.WriteString(s); err != nil {
+	if _, err := e.bw.WriteString(s); err != nil {
 		return errors.Trace(err)
 	}
-	if _, err := e.WriteString("\r\n"); err != nil {
+	if _, err := e.bw.WriteString("\r\n"); err != nil {
 		return errors.Trace(err)
 	}
 	return nil
@@ -145,14 +153,14 @@ func (e *Encoder) encodeBulkBytes(b []byte) error {
 	}
 }
 
-func (e *Encoder) encodeArray(a []*Resp) error {
-	if a == nil {
+func (e *Encoder) encodeArray(array []*Resp) error {
+	if array == nil {
 		return e.encodeInt(-1)
 	} else {
-		if err := e.encodeInt(int64(len(a))); err != nil {
+		if err := e.encodeInt(int64(len(array))); err != nil {
 			return err
 		}
-		for _, r := range a {
+		for _, r := range array {
 			if err := e.encodeResp(r); err != nil {
 				return err
 			}
