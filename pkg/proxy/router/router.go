@@ -98,7 +98,7 @@ func (s *Router) KeepAlive() error {
 }
 
 func (s *Router) Dispatch(r *Request) error {
-	hkey := getHashKey(r.Resp, r.OpStr)
+	hkey := getHashKey(r.Multi, r.OpStr)
 	slot := s.slots[hashSlot(hkey)]
 	return slot.forward(r, hkey)
 }

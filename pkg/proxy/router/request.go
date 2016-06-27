@@ -21,7 +21,7 @@ type Request struct {
 	OpStr string
 	Start int64
 
-	Resp *redis.Resp
+	Multi []*redis.Resp
 
 	Coalesce func() error
 	Response struct {
@@ -33,4 +33,19 @@ type Request struct {
 	slot *sync.WaitGroup
 
 	Failed *atomic2.Bool
+}
+
+func NewRequest(multi []*redis.Resp) *Request {
+	r := &Request{}
+	r.Multi = multi
+	return r
+}
+
+func (r *Request) SubRequest(multi []*redis.Resp) *Request {
+	x := &Request{}
+	x.OpStr = r.OpStr
+	x.Multi = multi
+	x.Wait = r.Wait
+	x.Failed = r.Failed
+	return x
 }

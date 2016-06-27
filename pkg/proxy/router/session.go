@@ -107,13 +107,13 @@ func (s *Session) loopReader(tasks chan<- *Request, d Dispatcher) (err error) {
 		close(tasks)
 	}()
 	for !s.quit {
-		resp, err := s.Conn.Reader.Decode()
+		multi, err := s.Conn.Reader.DecodeMultiBulk()
 		if err != nil {
 			return err
 		}
 		incrOpTotal()
 
-		r, err := s.handleRequest(resp, d)
+		r, err := s.handleRequest(multi, d)
 		if err != nil {
 			incrOpFails()
 			return err
@@ -170,8 +170,8 @@ func (s *Session) handleResponse(r *Request) (*redis.Resp, error) {
 	return resp, nil
 }
 
-func (s *Session) handleRequest(resp *redis.Resp, d Dispatcher) (*Request, error) {
-	opstr, err := getOpStr(resp)
+func (s *Session) handleRequest(multi []*redis.Resp, d Dispatcher) (*Request, error) {
+	opstr, err := getOpStr(multi)
 	if err != nil {
 		return nil, err
 	}
@@ -183,13 +183,11 @@ func (s *Session) handleRequest(resp *redis.Resp, d Dispatcher) (*Request, error
 	s.LastOpUnix = usnow / 1e6
 	s.Ops++
 
-	r := &Request{
-		OpStr:  opstr,
-		Start:  usnow,
-		Resp:   resp,
-		Wait:   &sync.WaitGroup{},
-		Failed: &s.failed,
-	}
+	r := NewRequest(multi)
+	r.OpStr = opstr
+	r.Start = usnow
+	r.Wait = &sync.WaitGroup{}
+	r.Failed = &s.failed
 
 	if opstr == "QUIT" {
 		return s.handleQuit(r)
@@ -228,7 +226,7 @@ func (s *Session) handleQuit(r *Request) (*Request, error) {
 }
 
 func (s *Session) handleAuth(r *Request) (*Request, error) {
-	if len(r.Resp.Array) != 2 {
+	if len(r.Multi) != 2 {
 		r.Response.Resp = redis.NewError([]byte("ERR wrong number of arguments for 'AUTH' command"))
 		return r, nil
 	}
@@ -236,7 +234,7 @@ func (s *Session) handleAuth(r *Request) (*Request, error) {
 		r.Response.Resp = redis.NewError([]byte("ERR Client sent AUTH, but no password is set"))
 		return r, nil
 	}
-	if s.auth != string(r.Resp.Array[1].Value) {
+	if s.auth != string(r.Multi[1].Value) {
 		s.authorized = false
 		r.Response.Resp = redis.NewError([]byte("ERR invalid password"))
 		return r, nil
@@ -248,11 +246,11 @@ func (s *Session) handleAuth(r *Request) (*Request, error) {
 }
 
 func (s *Session) handleSelect(r *Request) (*Request, error) {
-	if len(r.Resp.Array) != 2 {
+	if len(r.Multi) != 2 {
 		r.Response.Resp = redis.NewError([]byte("ERR wrong number of arguments for 'SELECT' command"))
 		return r, nil
 	}
-	if db, err := strconv.Atoi(string(r.Resp.Array[1].Value)); err != nil {
+	if db, err := strconv.Atoi(string(r.Multi[1].Value)); err != nil {
 		r.Response.Resp = redis.NewError([]byte("ERR invalid DB index"))
 		return r, nil
 	} else if db != 0 {
@@ -265,7 +263,7 @@ func (s *Session) handleSelect(r *Request) (*Request, error) {
 }
 
 func (s *Session) handlePing(r *Request) (*Request, error) {
-	if len(r.Resp.Array) != 1 {
+	if len(r.Multi) != 1 {
 		r.Response.Resp = redis.NewError([]byte("ERR wrong number of arguments for 'PING' command"))
 		return r, nil
 	}
@@ -274,22 +272,16 @@ func (s *Session) handlePing(r *Request) (*Request, error) {
 }
 
 func (s *Session) handleRequestMGet(r *Request, d Dispatcher) (*Request, error) {
-	nkeys := len(r.Resp.Array) - 1
+	var nkeys = len(r.Multi) - 1
 	if nkeys <= 1 {
 		return r, d.Dispatch(r)
 	}
 	var sub = make([]*Request, nkeys)
 	for i := 0; i < len(sub); i++ {
-		sub[i] = &Request{
-			OpStr: r.OpStr,
-			Start: r.Start,
-			Resp: redis.NewArray([]*redis.Resp{
-				r.Resp.Array[0],
-				r.Resp.Array[i+1],
-			}),
-			Wait:   r.Wait,
-			Failed: r.Failed,
-		}
+		sub[i] = r.SubRequest([]*redis.Resp{
+			r.Multi[0],
+			r.Multi[i+1],
+		})
 		if err := d.Dispatch(sub[i]); err != nil {
 			return nil, err
 		}
@@ -316,7 +308,7 @@ func (s *Session) handleRequestMGet(r *Request, d Dispatcher) (*Request, error) 
 }
 
 func (s *Session) handleRequestMSet(r *Request, d Dispatcher) (*Request, error) {
-	nblks := len(r.Resp.Array) - 1
+	var nblks = len(r.Multi) - 1
 	if nblks <= 2 {
 		return r, d.Dispatch(r)
 	}
@@ -326,17 +318,11 @@ func (s *Session) handleRequestMSet(r *Request, d Dispatcher) (*Request, error) 
 	}
 	var sub = make([]*Request, nblks/2)
 	for i := 0; i < len(sub); i++ {
-		sub[i] = &Request{
-			OpStr: r.OpStr,
-			Start: r.Start,
-			Resp: redis.NewArray([]*redis.Resp{
-				r.Resp.Array[0],
-				r.Resp.Array[i*2+1],
-				r.Resp.Array[i*2+2],
-			}),
-			Wait:   r.Wait,
-			Failed: r.Failed,
-		}
+		sub[i] = r.SubRequest([]*redis.Resp{
+			r.Multi[0],
+			r.Multi[i*2+1],
+			r.Multi[i*2+2],
+		})
 		if err := d.Dispatch(sub[i]); err != nil {
 			return nil, err
 		}
@@ -361,22 +347,16 @@ func (s *Session) handleRequestMSet(r *Request, d Dispatcher) (*Request, error) 
 }
 
 func (s *Session) handleRequestMDel(r *Request, d Dispatcher) (*Request, error) {
-	nkeys := len(r.Resp.Array) - 1
+	var nkeys = len(r.Multi) - 1
 	if nkeys <= 1 {
 		return r, d.Dispatch(r)
 	}
 	var sub = make([]*Request, nkeys)
 	for i := 0; i < len(sub); i++ {
-		sub[i] = &Request{
-			OpStr: r.OpStr,
-			Start: r.Start,
-			Resp: redis.NewArray([]*redis.Resp{
-				r.Resp.Array[0],
-				r.Resp.Array[i+1],
-			}),
-			Wait:   r.Wait,
-			Failed: r.Failed,
-		}
+		sub[i] = r.SubRequest([]*redis.Resp{
+			r.Multi[0],
+			r.Multi[i+1],
+		})
 		if err := d.Dispatch(sub[i]); err != nil {
 			return nil, err
 		}

@@ -82,6 +82,18 @@ func (e *Encoder) Encode(r *Resp, flush bool) error {
 	return e.Err
 }
 
+func (e *Encoder) EncodeMultiBulk(array []*Resp, flush bool) error {
+	if e.Err != nil {
+		return errors.Trace(ErrFailedEncoder)
+	}
+	if err := e.encodeMultiBulk(array); err != nil {
+		e.Err = err
+	} else if flush {
+		e.Err = errors.Trace(e.bw.Flush())
+	}
+	return e.Err
+}
+
 func (e *Encoder) Flush() error {
 	if e.Err != nil {
 		return errors.Trace(ErrFailedEncoder)
@@ -167,4 +179,11 @@ func (e *Encoder) encodeArray(array []*Resp) error {
 		}
 		return nil
 	}
+}
+
+func (e *Encoder) encodeMultiBulk(multi []*Resp) error {
+	if err := e.bw.WriteByte(byte(TypeArray)); err != nil {
+		return errors.Trace(err)
+	}
+	return e.encodeArray(multi)
 }

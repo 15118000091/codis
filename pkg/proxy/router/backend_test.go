@@ -25,12 +25,10 @@ func TestBackend(t *testing.T) {
 		bc := NewBackendConn(addr, "")
 		defer bc.Close()
 		defer close(reqc)
-		var resp = redis.NewBulkBytes(make([]byte, 4096))
+		var multi = []*redis.Resp{redis.NewBulkBytes(make([]byte, 4096))}
 		for i := 0; i < cap(reqc); i++ {
-			r := &Request{
-				Resp: resp,
-				Wait: &sync.WaitGroup{},
-			}
+			r := NewRequest(multi)
+			r.Wait = &sync.WaitGroup{}
 			bc.PushBack(r)
 			reqc <- r
 		}

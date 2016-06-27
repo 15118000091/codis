@@ -63,11 +63,13 @@ func (bc *BackendConn) KeepAlive() bool {
 	if len(bc.input) != 0 {
 		return false
 	}
-	bc.PushBack(&Request{
-		Resp: redis.NewArray([]*redis.Resp{
-			redis.NewBulkBytes([]byte("PING")),
-		}),
+
+	m := NewRequest([]*redis.Resp{
+		redis.NewBulkBytes([]byte("PING")),
 	})
+
+	bc.PushBack(m)
+
 	return true
 }
 
@@ -113,7 +115,7 @@ func (bc *BackendConn) loopWriter(round int) (err error) {
 		for ok {
 			var flush = len(bc.input) == 0
 			if bc.canForward(r) {
-				if err := p.Encode(r.Resp, flush); err != nil {
+				if err := p.EncodeMultiBulk(r.Multi, flush); err != nil {
 					return bc.setResponse(r, nil, err)
 				}
 				tasks <- r
@@ -152,12 +154,13 @@ func (bc *BackendConn) verifyAuth(c *redis.Conn) error {
 	if bc.auth == "" {
 		return nil
 	}
-	resp := redis.NewArray([]*redis.Resp{
+
+	multi := []*redis.Resp{
 		redis.NewBulkBytes([]byte("AUTH")),
 		redis.NewBulkBytes([]byte(bc.auth)),
-	})
+	}
 
-	if err := c.Writer.Encode(resp, true); err != nil {
+	if err := c.Writer.EncodeMultiBulk(multi, true); err != nil {
 		return err
 	}
 

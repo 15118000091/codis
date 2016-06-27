@@ -47,24 +47,18 @@ func isNotAllowed(opstr string) bool {
 }
 
 var (
-	ErrBadRespType = errors.New("bad resp type for command")
-	ErrBadOpStrLen = errors.New("bad command length, too short or too long")
+	ErrBadMultiBulk = errors.New("bad multi-bulk for command")
+	ErrBadOpStrLen  = errors.New("bad command length, too short or too long")
 )
 
-func getOpStr(resp *redis.Resp) (string, error) {
-	if !resp.IsArray() || len(resp.Array) == 0 {
-		return "", ErrBadRespType
-	}
-	for _, r := range resp.Array {
-		if r.IsBulkBytes() {
-			continue
-		}
-		return "", ErrBadRespType
+func getOpStr(multi []*redis.Resp) (string, error) {
+	if len(multi) < 1 {
+		return "", errors.Trace(ErrBadMultiBulk)
 	}
 
 	var upper [64]byte
 
-	var op = resp.Array[0].Value
+	var op = multi[0].Value
 	if len(op) == 0 || len(op) > len(upper) {
 		return "", ErrBadOpStrLen
 	}
@@ -92,14 +86,14 @@ func hashSlot(key []byte) int {
 	return int(crc32.ChecksumIEEE(key) % models.MaxSlotNum)
 }
 
-func getHashKey(resp *redis.Resp, opstr string) []byte {
+func getHashKey(multi []*redis.Resp, opstr string) []byte {
 	var index = 1
 	switch opstr {
 	case "ZINTERSTORE", "ZUNIONSTORE", "EVAL", "EVALSHA":
 		index = 3
 	}
-	if index < len(resp.Array) {
-		return resp.Array[index].Value
+	if index < len(multi) {
+		return multi[index].Value
 	}
 	return nil
 }
