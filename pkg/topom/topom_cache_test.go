@@ -218,6 +218,6 @@ func (c *memClient) CreateEphemeralInOrder(path string, data []byte) (<-chan str
 	return nil, "", errors.Trace(ErrNotSupport)
 }
 
-func (c *memClient) ListEphemeralInOrder(path string) (<-chan struct{}, []string, error) {
+func (c *memClient) WatchInOrder(path string) (<-chan struct{}, []string, error) {
 	return nil, nil, errors.Trace(ErrNotSupport)
 }

@@ -30,22 +30,22 @@ type Jodis struct {
 	watching bool
 }
 
-func NewJodis(c models.Client, p *models.Proxy) *Jodis {
+func NewJodis(c models.Client, p *models.Proxy, compatible bool) *Jodis {
 	var m = map[string]string{
-		"addr":     p.ProxyAddr,
-		"start_at": p.StartTime,
-		"token":    p.Token,
-		"state":    "online",
+		"addr":  p.ProxyAddr,
+		"start": p.StartTime,
+		"token": p.Token,
+		"state": "online",
 	}
 	b, err := json.MarshalIndent(m, "", "    ")
 	if err != nil {
 		log.PanicErrorf(err, "json marshal failed")
 	}
 	var path string
-	if models.IsZkClient(c) {
+	if compatible {
 		path = filepath.Join("/zk/codis", fmt.Sprintf("db_%s", p.ProductName), "proxy", p.Token)
 	} else {
-		path = filepath.Join("/jodis", p.ProductName, p.Token)
+		path = models.JodisPath(p.ProductName, p.Token)
 	}
 	return &Jodis{path: path, data: b, client: c}
 }

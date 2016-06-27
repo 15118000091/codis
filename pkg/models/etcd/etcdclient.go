@@ -287,7 +287,7 @@ func (c *Client) RefreshEphemeral(path string) error {
 	return nil
 }
 
-func (c *Client) ListEphemeralInOrder(path string) (<-chan struct{}, []string, error) {
+func (c *Client) WatchInOrder(path string) (<-chan struct{}, []string, error) {
 	if err := c.Mkdir(path); err != nil {
 		return nil, nil, err
 	}
@@ -296,16 +296,16 @@ func (c *Client) ListEphemeralInOrder(path string) (<-chan struct{}, []string, e
 	if c.closed {
 		return nil, nil, errors.Trace(ErrClosedClient)
 	}
-	log.Debugf("etcd list-ephemeral-inorder node %s", path)
+	log.Debugf("etcd watch-inorder node %s", path)
 	cntx, cancel := c.newContext()
 	defer cancel()
 	r, err := c.kapi.Get(cntx, path, &client.GetOptions{Quorum: true, Sort: true})
 	switch {
 	case err != nil:
-		log.Debugf("etcd list-ephemeral-inorder node %s failed: %s", path, err)
+		log.Debugf("etcd watch-inorder node %s failed: %s", path, err)
 		return nil, nil, errors.Trace(err)
 	case !r.Node.Dir:
-		log.Debugf("etcd list-ephemeral-inorder node %s failed: not a dir", path)
+		log.Debugf("etcd watch-inorder node %s failed: not a dir", path)
 		return nil, nil, errors.Trace(ErrNotDir)
 	}
 	var index = r.Index
@@ -316,19 +316,19 @@ func (c *Client) ListEphemeralInOrder(path string) (<-chan struct{}, []string, e
 	signal := make(chan struct{})
 	go func() {
 		defer close(signal)
-		watch := c.kapi.Watcher(path, &client.WatcherOptions{AfterIndex: index, Recursive: true})
+		watch := c.kapi.Watcher(path, &client.WatcherOptions{AfterIndex: index})
 		for {
 			r, err := watch.Next(c.context)
 			switch {
 			case err != nil:
-				log.Debugf("etch list-ephemeral-inorder node %s failed: %s", path, err)
+				log.Debugf("etch watch-inorder node %s failed: %s", path, err)
 				return
 			case r.Action != "get":
-				log.Debugf("etcd list-ephemeral-inorder node %s update", path)
+				log.Debugf("etcd watch-inorder node %s update", path)
 				return
 			}
 		}
 	}()
-	log.Debugf("etcd list-ephemeral-inorder OK")
+	log.Debugf("etcd watch-inorder OK")
 	return signal, paths, nil
 }

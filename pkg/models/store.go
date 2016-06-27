@@ -18,44 +18,91 @@ func init() {
 	}
 }
 
-type Store struct {
-	client Client
-	prefix string
+const CodisDir = "/codis3"
+
+func ProductDir(product string) string {
+	return filepath.Join(CodisDir, product)
 }
 
-func NewStore(client Client, name string) *Store {
-	return &Store{
-		client: client,
-		prefix: filepath.Join("/codis3", name),
-	}
+func LockPath(product string) string {
+	return filepath.Join(CodisDir, product, "topom-lock")
+}
+
+func SlotPath(product string, sid int) string {
+	return filepath.Join(CodisDir, product, "slots", fmt.Sprintf("slot-%04d", sid))
+}
+
+func GroupDir(product string) string {
+	return filepath.Join(CodisDir, product, "group")
+}
+
+func ProxyDir(product string) string {
+	return filepath.Join(CodisDir, product, "proxy")
+}
+
+func JodisDir(product string) string {
+	return filepath.Join(CodisDir, product, "jodis")
+}
+
+func GroupPath(product string, gid int) string {
+	return filepath.Join(CodisDir, product, "group", fmt.Sprintf("group-%04d", gid))
+}
+
+func ProxyPath(product string, token string) string {
+	return filepath.Join(CodisDir, product, "proxy", fmt.Sprintf("proxy-%s", token))
+}
+
+func JodisPath(product string, token string) string {
+	return filepath.Join(CodisDir, product, "jodis", fmt.Sprintf("proxy-%s", token))
+}
+
+type Store struct {
+	client  Client
+	product string
+}
+
+func NewStore(client Client, product string) *Store {
+	return &Store{client, product}
 }
 
 func (s *Store) Close() error {
 	return s.client.Close()
 }
 
+func (s *Store) Client() Client {
+	return s.client
+}
+
 func (s *Store) LockPath() string {
-	return filepath.Join(s.prefix, "topom")
+	return LockPath(s.product)
 }
 
 func (s *Store) SlotPath(sid int) string {
-	return filepath.Join(s.prefix, "slots", fmt.Sprintf("slot-%04d", sid))
+	return SlotPath(s.product, sid)
 }
 
-func (s *Store) GroupBase() string {
-	return filepath.Join(s.prefix, "group")
+func (s *Store) GroupDir() string {
+	return GroupDir(s.product)
+}
+
+func (s *Store) ProxyDir() string {
+	return ProxyDir(s.product)
+}
+
+func (s *Store) JodisDir() string {
+	return JodisDir(s.product)
 }
 
 func (s *Store) GroupPath(gid int) string {
-	return filepath.Join(s.prefix, "group", fmt.Sprintf("group-%04d", gid))
-}
-
-func (s *Store) ProxyBase() string {
-	return filepath.Join(s.prefix, "proxy")
+	return GroupPath(s.product, gid)
 }
 
 func (s *Store) ProxyPath(token string) string {
-	return filepath.Join(s.prefix, "proxy", fmt.Sprintf("proxy-%s", token))
+	return ProxyPath(s.product, token)
+}
+
+func (s *Store) JodisPath(token string) string {
+	return JodisPath(s.product, token)
 }
 
 func (s *Store) Acquire(topom *Topom) error {
@@ -99,7 +146,7 @@ func (s *Store) UpdateSlotMapping(m *SlotMapping) error {
 }
 
 func (s *Store) ListGroup() (map[int]*Group, error) {
-	paths, err := s.client.List(s.GroupBase(), false)
+	paths, err := s.client.List(s.GroupDir(), false)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +186,7 @@ func (s *Store) DeleteGroup(gid int) error {
 }
 
 func (s *Store) ListProxy() (map[string]*Proxy, error) {
-	paths, err := s.client.List(s.ProxyBase(), false)
+	paths, err := s.client.List(s.ProxyDir(), false)
 	if err != nil {
 		return nil, err
 	}

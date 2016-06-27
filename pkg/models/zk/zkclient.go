@@ -374,7 +374,7 @@ func (c *Client) CreateEphemeralInOrder(path string, data []byte) (<-chan struct
 	return signal, node, nil
 }
 
-func (c *Client) ListEphemeralInOrder(path string) (<-chan struct{}, []string, error) {
+func (c *Client) WatchInOrder(path string) (<-chan struct{}, []string, error) {
 	if err := c.Mkdir(path); err != nil {
 		return nil, nil, err
 	}
@@ -385,7 +385,7 @@ func (c *Client) ListEphemeralInOrder(path string) (<-chan struct{}, []string, e
 	}
 	var signal chan struct{}
 	var paths []string
-	log.Debugf("zkclient list-ephemeral-inorder node %s", path)
+	log.Debugf("zkclient watch-inorder node %s", path)
 	err := c.shell(func(conn *zk.Conn) error {
 		nodes, _, w, err := conn.ChildrenW(path)
 		if err != nil {
@@ -399,14 +399,14 @@ func (c *Client) ListEphemeralInOrder(path string) (<-chan struct{}, []string, e
 		go func() {
 			defer close(signal)
 			<-w
-			log.Debugf("zkclient list-ephemeral-inorder node %s update", path)
+			log.Debugf("zkclient watch-inorder node %s update", path)
 		}()
 		return nil
 	})
 	if err != nil {
-		log.Debugf("zkclient list-ephemeral-inorder node %s failed: %s", path, err)
+		log.Debugf("zkclient watch-inorder node %s failed: %s", path, err)
 		return nil, nil, err
 	}
-	log.Debugf("zkclient list-ephemeral-inorder OK")
+	log.Debugf("zkclient watch-inorder OK")
 	return signal, paths, nil
 }

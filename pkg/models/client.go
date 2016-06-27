@@ -18,13 +18,13 @@ type Client interface {
 
 	Close() error
 
+	WatchInOrder(path string) (<-chan struct{}, []string, error)
+
 	CreateEphemeral(path string, data []byte) (<-chan struct{}, error)
 	CreateEphemeralInOrder(path string, data []byte) (<-chan struct{}, string, error)
-
-	ListEphemeralInOrder(path string) (<-chan struct{}, []string, error)
 }
 
-var ErrUnknownCoordinator = errors.New("unknown coordinator type")
+var ErrUnknownCoordinator = errors.New("unknown coordinator")
 
 func NewClient(coordinator string, addrlist string, timeout time.Duration) (Client, error) {
 	switch coordinator {
@@ -34,9 +34,4 @@ func NewClient(coordinator string, addrlist string, timeout time.Duration) (Clie
 		return etcdclient.New(addrlist, timeout)
 	}
 	return nil, errors.Trace(ErrUnknownCoordinator)
-}
-
-func IsZkClient(c Client) bool {
-	_, ok := c.(*zkclient.Client)
-	return ok
 }

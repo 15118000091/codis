@@ -113,7 +113,7 @@ func (s *Proxy) setup() error {
 		if err != nil {
 			return err
 		}
-		s.xjodis = NewJodis(c, s.model)
+		s.xjodis = NewJodis(c, s.model, s.config.JodisCompatible != 0)
 	}
 
 	return nil
