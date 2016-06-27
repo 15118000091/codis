@@ -6,6 +6,11 @@ package models
 import (
 	"fmt"
 	"path/filepath"
+	"time"
+
+	"github.com/CodisLabs/codis/pkg/models/etcd"
+	"github.com/CodisLabs/codis/pkg/models/zk"
+	"github.com/CodisLabs/codis/pkg/utils/errors"
 )
 
 type Client interface {
@@ -17,6 +22,31 @@ type Client interface {
 	List(path string) ([]string, error)
 
 	Close() error
+
+	CreateEphemeral(path string, data []byte) (<-chan struct{}, error)
+	CreateEphemeralInOrder(path string, data []byte) (<-chan struct{}, string, error)
+
+	ListEphemeralInOrder(path string) (<-chan struct{}, []string, error)
+}
+
+var ErrUnknownCoordinator = errors.New("unknown coordinator type")
+
+func NewClient(coordinator string, addrlist string, timeout time.Duration) (Client, error) {
+	switch coordinator {
+	case "zk", "zookeeper":
+		return zkclient.New(addrlist, timeout)
+	case "etcd":
+		return etcdclient.New(addrlist, timeout)
+	}
+	return nil, errors.Trace(ErrUnknownCoordinator)
+}
+
+func EncodePath(elem ...string) string {
+	return filepath.ToSlash(filepath.Join(elem...))
+}
+
+func DecodePath(path string) string {
+	return filepath.FromSlash(path)
 }
 
 type Store struct {
@@ -27,7 +57,7 @@ type Store struct {
 func NewStore(client Client, name string) *Store {
 	return &Store{
 		client: client,
-		prefix: filepath.Join("/codis3", name),
+		prefix: EncodePath("/codis3", name),
 	}
 }
 
@@ -36,27 +66,35 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) LockPath() string {
-	return filepath.Join(s.prefix, "topom")
+	return EncodePath(s.prefix, "topom")
 }
 
 func (s *Store) SlotPath(sid int) string {
-	return filepath.Join(s.prefix, "slots", fmt.Sprintf("slot-%04d", sid))
+	return EncodePath(s.prefix, "slots", fmt.Sprintf("slot-%04d", sid))
 }
 
 func (s *Store) GroupBase() string {
-	return filepath.Join(s.prefix, "group")
+	return EncodePath(s.prefix, "group")
 }
 
 func (s *Store) GroupPath(gid int) string {
-	return filepath.Join(s.prefix, "group", fmt.Sprintf("group-%04d", gid))
+	return EncodePath(s.prefix, "group", fmt.Sprintf("group-%04d", gid))
 }
 
 func (s *Store) ProxyBase() string {
-	return filepath.Join(s.prefix, "proxy")
+	return EncodePath(s.prefix, "proxy")
 }
 
 func (s *Store) ProxyPath(token string) string {
-	return filepath.Join(s.prefix, "proxy", fmt.Sprintf("proxy-%s", token))
+	return EncodePath(s.prefix, "proxy", fmt.Sprintf("proxy-%s", token))
+}
+
+func (s *Store) TopomClusterBase() string {
+	return EncodePath(s.prefix, "topom-cluster")
+}
+
+func (s *Store) TopomClusterPath(name string) string {
+	return EncodePath(s.prefix, "topom-cluster", name)
 }
 
 func (s *Store) Acquire(topom *Topom) error {
@@ -100,12 +138,12 @@ func (s *Store) UpdateSlotMapping(m *SlotMapping) error {
 }
 
 func (s *Store) ListGroup() (map[int]*Group, error) {
-	files, err := s.client.List(s.GroupBase())
+	paths, err := s.client.List(s.GroupBase())
 	if err != nil {
 		return nil, err
 	}
 	group := make(map[int]*Group)
-	for _, path := range files {
+	for _, path := range paths {
 		b, err := s.client.Read(path)
 		if err != nil {
 			return nil, err
@@ -140,12 +178,12 @@ func (s *Store) DeleteGroup(gid int) error {
 }
 
 func (s *Store) ListProxy() (map[string]*Proxy, error) {
-	files, err := s.client.List(s.ProxyBase())
+	paths, err := s.client.List(s.ProxyBase())
 	if err != nil {
 		return nil, err
 	}
 	proxy := make(map[string]*Proxy)
-	for _, path := range files {
+	for _, path := range paths {
 		b, err := s.client.Read(path)
 		if err != nil {
 			return nil, err
@@ -177,4 +215,36 @@ func (s *Store) UpdateProxy(p *Proxy) error {
 
 func (s *Store) DeleteProxy(token string) error {
 	return s.client.Delete(s.ProxyPath(token))
+}
+
+func (s *Store) CreateTopomClusterEphemeral(topom *Topom) (<-chan struct{}, error) {
+	w, _, err := s.client.CreateEphemeralInOrder(s.TopomClusterBase(), topom.Encode())
+	return w, err
+}
+
+func (s *Store) LoadTopomClusterEphemeral(name string) (*Topom, error) {
+	b, err := s.client.Read(s.TopomClusterPath(name))
+	if err != nil {
+		return nil, err
+	}
+	if b != nil {
+		var t = &Topom{}
+		if err := jsonDecode(t, b); err != nil {
+			return nil, err
+		}
+		return t, nil
+	}
+	return nil, nil
+}
+
+func (s *Store) WatchTopomClusterLeader() (<-chan struct{}, string, error) {
+	w, paths, err := s.client.ListEphemeralInOrder(s.TopomClusterBase())
+	if err != nil {
+		return nil, "", err
+	}
+	var leader string
+	if len(paths) != 0 {
+		_, leader = filepath.Split(DecodePath(paths[0]))
+	}
+	return w, leader, nil
 }

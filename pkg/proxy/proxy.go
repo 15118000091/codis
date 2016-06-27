@@ -187,13 +187,13 @@ func (s *Proxy) Slots() []*models.Slot {
 	return s.router.GetSlots()
 }
 
-func (s *Proxy) FillSlot(i int, addr, from string, locked bool) error {
+func (s *Proxy) FillSlot(idx int, addr, from string, locked bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
 		return ErrClosedProxy
 	}
-	return s.router.FillSlot(i, addr, from, locked)
+	return s.router.FillSlot(idx, addr, from, locked)
 }
 
 func (s *Proxy) FillSlots(slots []*models.Slot) error {
@@ -203,10 +203,10 @@ func (s *Proxy) FillSlots(slots []*models.Slot) error {
 		return ErrClosedProxy
 	}
 	for _, slot := range slots {
-		i, locked := slot.Id, slot.Locked
+		idx, locked := slot.Id, slot.Locked
 		addr := slot.BackendAddr
 		from := slot.MigrateFrom
-		if err := s.router.FillSlot(i, addr, from, locked); err != nil {
+		if err := s.router.FillSlot(idx, addr, from, locked); err != nil {
 			return err
 		}
 	}

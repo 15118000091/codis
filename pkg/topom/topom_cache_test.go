@@ -207,3 +207,17 @@ func (c *memClient) List(path string) ([]string, error) {
 func (c *memClient) Close() error {
 	return nil
 }
+
+var ErrNotSupport = errors.New("not support")
+
+func (c *memClient) CreateEphemeral(path string, data []byte) (<-chan struct{}, error) {
+	return nil, errors.Trace(ErrNotSupport)
+}
+
+func (c *memClient) CreateEphemeralInOrder(path string, data []byte) (<-chan struct{}, string, error) {
+	return nil, "", errors.Trace(ErrNotSupport)
+}
+
+func (c *memClient) ListEphemeralInOrder(path string) (<-chan struct{}, []string, error) {
+	return nil, nil, errors.Trace(ErrNotSupport)
+}

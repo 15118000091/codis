@@ -13,6 +13,7 @@ import (
 
 	"github.com/samuel/go-zookeeper/zk"
 
+	"github.com/CodisLabs/codis/pkg/models"
 	"github.com/CodisLabs/codis/pkg/utils/errors"
 	"github.com/CodisLabs/codis/pkg/utils/log"
 )
@@ -25,15 +26,14 @@ var DefaultLogfunc = func(format string, v ...interface{}) {
 
 type ZkClient struct {
 	sync.Mutex
-
 	conn *zk.Conn
-	addr string
 
+	addrlist string
+	timeout  time.Duration
+
+	logger *zkLogger
 	dialAt time.Time
 	closed bool
-
-	logger  *zkLogger
-	timeout time.Duration
 }
 
 type zkLogger struct {
@@ -46,16 +46,17 @@ func (l *zkLogger) Printf(format string, v ...interface{}) {
 	}
 }
 
-func New(addr string, timeout time.Duration) (*ZkClient, error) {
-	return NewWithLogfunc(addr, timeout, DefaultLogfunc)
+func New(addrlist string, timeout time.Duration) (*ZkClient, error) {
+	return NewWithLogfunc(addrlist, timeout, DefaultLogfunc)
 }
 
-func NewWithLogfunc(addr string, timeout time.Duration, logfunc func(foramt string, v ...interface{})) (*ZkClient, error) {
+func NewWithLogfunc(addrlist string, timeout time.Duration, logfunc func(foramt string, v ...interface{})) (*ZkClient, error) {
 	if timeout <= 0 {
 		timeout = time.Second * 5
 	}
 	c := &ZkClient{
-		addr: addr, timeout: timeout, logger: &zkLogger{logfunc},
+		addrlist: addrlist, timeout: timeout,
+		logger: &zkLogger{logfunc},
 	}
 	if err := c.reset(); err != nil {
 		return nil, err
@@ -65,7 +66,7 @@ func NewWithLogfunc(addr string, timeout time.Duration, logfunc func(foramt stri
 
 func (c *ZkClient) reset() error {
 	c.dialAt = time.Now()
-	conn, events, err := zk.Connect(strings.Split(c.addr, ","), c.timeout)
+	conn, events, err := zk.Connect(strings.Split(c.addrlist, ","), c.timeout)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -75,7 +76,7 @@ func (c *ZkClient) reset() error {
 	c.conn = conn
 	c.conn.SetLogger(c.logger)
 
-	c.logger.Printf("zkclient setup new connection to %s", c.addr)
+	c.logger.Printf("zkclient setup new connection to %s", c.addrlist)
 
 	go func() {
 		for e := range events {
@@ -325,7 +326,7 @@ func (c *ZkClient) List(path string) ([]string, error) {
 			return errors.Trace(err)
 		}
 		for _, node := range nodes {
-			paths = append(paths, filepath.Join(path, node))
+			paths = append(paths, models.EncodePath(path, node))
 		}
 		return nil
 	})
@@ -387,7 +388,7 @@ func (c *ZkClient) ListEphemeralInOrder(path string) (<-chan struct{}, []string,
 		}
 		sort.Strings(nodes)
 		for _, node := range nodes {
-			paths = append(paths, filepath.Join(path, node))
+			paths = append(paths, models.EncodePath(path, node))
 		}
 		signal = make(chan struct{})
 		go func() {

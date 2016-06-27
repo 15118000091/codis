@@ -34,8 +34,8 @@ type EtcdClient struct {
 	context context.Context
 }
 
-func New(addr string, timeout time.Duration) (*EtcdClient, error) {
-	endpoints := strings.Split(addr, ",")
+func New(addrlist string, timeout time.Duration) (*EtcdClient, error) {
+	endpoints := strings.Split(addrlist, ",")
 	for i, s := range endpoints {
 		if s != "" && !strings.HasPrefix(s, "http://") {
 			endpoints[i] = "http://" + s
@@ -107,7 +107,7 @@ func (c *EtcdClient) Mkdir(path string) error {
 		log.Debugf("etcd mkdir node %s failed: %s", path, err)
 		return errors.Trace(err)
 	}
-	log.Debugf("etcd mkdir node OK")
+	log.Debugf("etcd mkdir OK")
 	return nil
 }
 
@@ -125,7 +125,7 @@ func (c *EtcdClient) Create(path string, data []byte) error {
 		log.Debugf("etcd create node %s failed: %s", path, err)
 		return errors.Trace(err)
 	}
-	log.Debugf("etcd create node OK")
+	log.Debugf("etcd create OK")
 	return nil
 }
 
@@ -143,7 +143,7 @@ func (c *EtcdClient) Update(path string, data []byte) error {
 		log.Debugf("etcd update node %s failed: %s", path, err)
 		return errors.Trace(err)
 	}
-	log.Debugf("etcd update node OK")
+	log.Debugf("etcd update OK")
 	return nil
 }
 
@@ -161,7 +161,7 @@ func (c *EtcdClient) Delete(path string) error {
 		log.Debugf("etcd delete node %s failed: %s", path, err)
 		return errors.Trace(err)
 	}
-	log.Debugf("etcd delete node OK")
+	log.Debugf("etcd delete OK")
 	return nil
 }
 
@@ -190,10 +190,6 @@ func (c *EtcdClient) Read(path string) ([]byte, error) {
 }
 
 func (c *EtcdClient) List(path string) ([]string, error) {
-	return c.ListInOrder(path)
-}
-
-func (c *EtcdClient) ListInOrder(path string) ([]string, error) {
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
@@ -201,23 +197,23 @@ func (c *EtcdClient) ListInOrder(path string) ([]string, error) {
 	}
 	cntx, cancel := c.newContext()
 	defer cancel()
-	r, err := c.kapi.Get(cntx, path, &client.GetOptions{Quorum: true, Sort: true})
+	r, err := c.kapi.Get(cntx, path, &client.GetOptions{Quorum: true})
 	switch {
 	case err != nil:
 		if isErrNoNode(err) {
 			return nil, nil
 		}
-		log.Debugf("etcd list-inorder node %s failed: %s", path, err)
+		log.Debugf("etcd list node %s failed: %s", path, err)
 		return nil, errors.Trace(err)
 	case !r.Node.Dir:
-		log.Debugf("etcd list-inorder node %s failed: not a dir", path)
+		log.Debugf("etcd list node %s failed: not a dir", path)
 		return nil, errors.Trace(ErrNotDir)
 	default:
-		var files []string
+		var paths []string
 		for _, node := range r.Node.Nodes {
-			files = append(files, node.Key)
+			paths = append(paths, node.Key)
 		}
-		return files, nil
+		return paths, nil
 	}
 }
 
@@ -291,28 +287,31 @@ func (c *EtcdClient) RefreshEphemeral(path string) error {
 	return nil
 }
 
-func (c *EtcdClient) WatchInOrder(path string) (<-chan struct{}, []string, error) {
+func (c *EtcdClient) ListEphemeralInOrder(path string) (<-chan struct{}, []string, error) {
+	if err := c.Mkdir(path); err != nil {
+		return nil, nil, err
+	}
 	c.Lock()
 	defer c.Unlock()
 	if c.closed {
 		return nil, nil, errors.Trace(ErrClosedEtcdClient)
 	}
-	log.Debugf("etcd watch-inorder node %s", path)
+	log.Debugf("etcd list-ephemeral-inorder node %s", path)
 	cntx, cancel := c.newContext()
 	defer cancel()
 	r, err := c.kapi.Get(cntx, path, &client.GetOptions{Quorum: true, Sort: true})
 	switch {
 	case err != nil:
-		log.Debugf("etcd watch-inorder node %s failed: %s", path, err)
+		log.Debugf("etcd list-ephemeral-inorder node %s failed: %s", path, err)
 		return nil, nil, errors.Trace(err)
 	case !r.Node.Dir:
-		log.Debugf("etcd watch-inorder node %s failed: not a dir", path)
+		log.Debugf("etcd list-ephemeral-inorder node %s failed: not a dir", path)
 		return nil, nil, errors.Trace(ErrNotDir)
 	}
 	var index = r.Index
-	var files []string
+	var paths []string
 	for _, node := range r.Node.Nodes {
-		files = append(files, node.Key)
+		paths = append(paths, node.Key)
 	}
 	signal := make(chan struct{})
 	go func() {
@@ -322,13 +321,14 @@ func (c *EtcdClient) WatchInOrder(path string) (<-chan struct{}, []string, error
 			r, err := watch.Next(c.context)
 			switch {
 			case err != nil:
-				log.Debugf("etch watch-inorder %s failed: %s", path, err)
+				log.Debugf("etch list-ephemeral-inorder node %s failed: %s", path, err)
 				return
 			case r.Action != "get":
-				log.Debugf("etcd watch-inorder %s update", path)
+				log.Debugf("etcd list-ephemeral-inorder node %s update", path)
 				return
 			}
 		}
 	}()
-	return signal, files, nil
+	log.Debugf("etcd list-ephemeral-inorder OK")
+	return signal, paths, nil
 }
